@@ -70,3 +70,17 @@ npm test    # 48 testes, sem rede e sem chamar nenhum CLI
 Node ≥ 22, `git`, `tmux` (para a sessão de revisão interativa) e os CLIs revisores
 no PATH e autenticados: `claude`, `grok`, `codex`. Um provider ausente só custa a
 vez dele na cadeia — mas a cadeia inteira falhando **bloqueia**, não libera.
+
+## Versionamento
+
+[SemVer](https://semver.org/lang/pt-BR/) com tags anotadas `vX.Y.Z`; histórico em
+[`CHANGELOG.md`](./CHANGELOG.md). A versão canônica é o `version` do `package.json`.
+
+**Afrouxar uma trava do gate é breaking change**, mesmo que nada quebre tecnicamente:
+quem instalou isto instalou o rigor, e um gate que passa a deixar passar é uma
+regressão silenciosa. Também são breaking: schema do scorecard, contrato do
+`lms.config.json` e nomes das variáveis `LMS_*`.
+
+`install.sh` copia os módulos para `<projeto>/scripts/`, então atualizar é rodá-lo de
+novo. Antes disso, rode `npm test` neste repo: 48 testes cobrem o gate sem rede e sem
+chamar nenhum CLI, e são a rede de segurança de quem depende do bloqueio.
