@@ -1,0 +1,35 @@
+{
+  "$comment": [
+    "Copie para lms.config.json na raiz do projeto. TUDO aqui é opcional: sem o",
+    "arquivo o LMS roda como revisor puro de diff, que é o certo para um projeto",
+    "sem migrations versionadas e sem gate de métrica.",
+    "Provider, ordem e modelos NÃO ficam aqui — são variáveis de ambiente",
+    "(LMS_REVIEWER_ORDER, LMS_CLAUDE_MODEL, LMS_GROK_MODEL, LMS_CODEX_MODEL,",
+    "LMS_*_BIN, LMS_CLAUDE_EFFORT, LMS_REVIEWER_TIMEOUT_SEC)."
+  ],
+
+  "$migrationsPath": [
+    "Pasta de migrations append-only. Quando declarada, o prompt ganha a regra",
+    "que impede o revisor de achar defeito em migration já aplicada — sem ela a",
+    "cadeia não converge, porque cada rodada acha o próximo defeito teórico na",
+    "mesma história imutável. NÃO declare se o projeto não tem migrations: seria",
+    "isentar uma pasta inexistente."
+  ],
+  "migrationsPath": "services/api/migrations/",
+
+  "$dbStateGate": [
+    "Script que cobre o estado vivo do banco em CI. Só entra no prompt para dizer",
+    "ao revisor que esse risco é coberto em outro lugar."
+  ],
+  "dbStateGate": "scripts/db-exposure-gate.mjs",
+
+  "$fallow": [
+    "Gate de regressão de métrica, medido pelo RUNNER (não declarado pelo",
+    "reviewer — o modelo não tem shell nem relógio confiável). Sem `gate` a",
+    "medição não acontece e o veredito é 'no-changes'."
+  ],
+  "fallow": {
+    "gate": "apps/pdv-mobile/scripts/fallow-regression-gate.mjs",
+    "baseline": ".fallow/baseline.json"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "name": "@dirgocs/lms-reviewer",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Gate de push bloqueante: cadeia de revisores headless (Claude/Grok/Codex) com scorecard verificado contra o disco",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "lms-trigger": "./scripts/lms-reviewer-trigger.sh",
+    "lms-reviewer": "./scripts/lms-reviewer-spawn.sh"
+  },
+  "scripts": {
+    "test": "node --test scripts/lms-config.test.mjs scripts/lms-scorecard.test.mjs scripts/lms-reviewer-fallback.test.mjs scripts/lms-reviewer-trigger.test.mjs scripts/lms-inspection.test.mjs scripts/lms-reviewer-tmux.test.mjs scripts/lms-subject.test.mjs",
+    "lms:reviewer": "bash scripts/lms-reviewer-spawn.sh",
+    "lms:reviewer:tmux": "node scripts/lms-reviewer-tmux.mjs",
+    "lms:trigger": "bash scripts/lms-reviewer-trigger.sh"
+  },
+  "files": [
+    "scripts/",
+    "lms.config.example.json",
+    "install.sh",
+    "README.md"
+  ]
+}
