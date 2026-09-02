@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { validateScorecard } from './lms-scorecard.mjs';
+import { scorecardFormError, validateScorecard } from './lms-scorecard.mjs';
 
 const now = Date.parse('2026-07-10T00:00:00.000Z');
 const options = {
@@ -29,9 +29,31 @@ function validScorecard(reviewer = 'grok') {
     at: '2026-07-09T23:30:00.000Z',
     autonomy: 'reviewer',
     fallow: 'pass',
+    coverage: [{ surface: 'arquivos alterados', total: 3, inspected: 3 }],
     inspected: [{ path: 'a.ts', line: 1, quote: 'linha citada verbatim' }],
   };
 }
+
+test('exige coverage', () => {
+  const { coverage, ...semCoverage } = validScorecard();
+  assert.match(scorecardFormError(semCoverage, options), /coverage/);
+});
+
+test('recusa coverage com inspected maior que total', () => {
+  const card = validScorecard();
+  card.coverage = [{ surface: 'rotas', total: 3, inspected: 4 }];
+  assert.match(scorecardFormError(card, options), /inspected .* total/);
+});
+
+test('recusa superficie sem descricao', () => {
+  const card = validScorecard();
+  card.coverage = [{ surface: '  ', total: 3, inspected: 3 }];
+  assert.match(scorecardFormError(card, options), /surface/);
+});
+
+test('aceita coverage bem formado', () => {
+  assert.equal(scorecardFormError(validScorecard(), options), null);
+});
 
 test('accepts a fresh 5/5 scorecard with zero findings', () => {
   assert.equal(validateScorecard(validScorecard(), options), true);

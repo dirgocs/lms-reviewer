@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { escreverArquivosCitados } from './lms-test-fixtures.mjs';
+import { escreverArquivosCitados, coberturaFixture } from './lms-test-fixtures.mjs';
 import { join } from 'node:path';
 
 import {
@@ -186,6 +186,7 @@ if (mode === 'review-p2-com-p1-na-lista') {
       { severity: 'P1', confidence: 95, lens: 'code-safety', path: 'b.ts:1',
         title: 'bloqueante escondido', why: 'contador mente' },
     ],
+    coverage: [{ surface: 'arquivos alterados', total: 3, inspected: 3 }],
     inspected: provaDeLeitura,
   }));
   process.exit(0);
@@ -256,6 +257,7 @@ console.log(JSON.stringify({
     path: 'a.ts:1', title: 'achado de severidade controlada', why: 'exercita a politica',
   }] : [],
   at: new Date().toISOString(),
+  coverage: [{ surface: 'arquivos alterados', total: 3, inspected: 3 }],
   inspected,
 }));
 `;
@@ -321,6 +323,7 @@ function scorecardComAchados(severity, count) {
       title: `${severity} ${index + 1}`,
       why: 'achado semantico',
     })),
+    coverage: coberturaFixture,
     inspected: provaDeLeituraFixture,
   };
 }

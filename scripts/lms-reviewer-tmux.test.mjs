@@ -22,6 +22,7 @@ function scorecard(overrides = {}) {
       'code-efficiency': { p0: 0, p1: 0, p2: 0 },
     },
     findings: [],
+    coverage: [{ surface: 'arquivos alterados', total: 3, inspected: 3 }],
     ...overrides,
   };
 }

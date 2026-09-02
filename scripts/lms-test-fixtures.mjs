@@ -10,3 +10,7 @@ export async function escreverArquivosCitados(root) {
   await writeFile(join(root, 'b.ts'), 'export const bravo = 2; // linha citada\n', 'utf8');
   await writeFile(join(root, 'c.ts'), 'export const charlie = 3; // linha citada\n', 'utf8');
 }
+
+/** Cobertura padrao dos fixtures: a superficie varrida tem de bater com os
+ *  tres arquivos que escreverArquivosCitados cria. */
+export const coberturaFixture = [{ surface: 'arquivos alterados', total: 3, inspected: 3 }];

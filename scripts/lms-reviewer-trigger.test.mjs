@@ -29,7 +29,7 @@ await writeFile(process.env.LMS_REVIEWER_ROOT + '/.lms/last.json', JSON.stringif
     'code-structure': { p0: 0, p1: 0, p2: 0 },
     'code-quality': { p0: 0, p1: 0, p2: 0 },
     'code-efficiency': { p0: 0, p1: 0, p2: 0 },
-  }, at: new Date().toISOString(), autonomy: 'reviewer', fallow: 'pass',
+  }, at: new Date().toISOString(), autonomy: 'reviewer', fallow: 'pass', coverage: [{ surface: 'arquivos alterados', total: 3, inspected: 3 }],
     inspected: [{ path: 'a.ts', line: 1, quote: 'export const citado = 42; // linha citada verbatim' }],
 }));
 `);
@@ -63,7 +63,7 @@ test('accepts a valid fresh scorecard without starting the runner', async () => 
       'code-structure': { p0: 0, p1: 0, p2: 0 },
       'code-quality': { p0: 0, p1: 0, p2: 0 },
       'code-efficiency': { p0: 0, p1: 0, p2: 0 },
-    }, at: new Date().toISOString(), autonomy: 'reviewer', fallow: 'pass',
+    }, at: new Date().toISOString(), autonomy: 'reviewer', fallow: 'pass', coverage: [{ surface: 'arquivos alterados', total: 3, inspected: 3 }],
     inspected: [{ path: 'a.ts', line: 1, quote: 'export const citado = 42; // linha citada verbatim' }],
   });
   try {
@@ -82,7 +82,7 @@ test('resolves validator from the package when consumer has no LMS scripts', asy
       'code-structure': { p0: 0, p1: 0, p2: 0 },
       'code-quality': { p0: 0, p1: 0, p2: 0 },
       'code-efficiency': { p0: 0, p1: 0, p2: 0 },
-    }, at: new Date().toISOString(), autonomy: 'reviewer', fallow: 'pass',
+    }, at: new Date().toISOString(), autonomy: 'reviewer', fallow: 'pass', coverage: [{ surface: 'arquivos alterados', total: 3, inspected: 3 }],
     inspected: [{ path: 'a.ts', line: 1, quote: 'export const citado = 42; // linha citada verbatim' }],
   });
   try {

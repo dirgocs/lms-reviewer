@@ -94,6 +94,7 @@ test('scorecard de outro diff nao autoriza publicacao', () => {
       'code-quality': { p0: 0, p1: 0, p2: 0 },
       'code-efficiency': { p0: 0, p1: 0, p2: 0 },
     },
+    coverage: [{ surface: 'arquivos alterados', total: 1, inspected: 1 }],
     inspected: [{ path: 'a.ts', line: 1, quote: 'export const a = 1;' }],
   };
   const opts = { reviewer: 'grok', base: 'origin/master' };

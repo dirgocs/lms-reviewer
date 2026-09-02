@@ -81,6 +81,37 @@ function aggregateConsistencyError(value, totals) {
 }
 
 /**
+ * Quanto da superficie foi de fato varrido.
+ *
+ * `inspected` prova que o revisor leu ALGUMA coisa; nao prova que ele varreu. Um
+ * revisor que abriu 3 de 45 rotas e um que abriu as 45 produziam scorecards
+ * indistinguiveis. `coverage` e o denominador que faltava — e por ser auto-declarado,
+ * e exatamente o tipo de afirmacao que o contraditorio consegue derrubar barato:
+ * basta achar a 46a rota.
+ */
+function coverageError(value) {
+  const coverage = value.coverage;
+  if (!Array.isArray(coverage) || coverage.length === 0) {
+    return 'coverage is required: list each surface you swept as {surface, total, inspected}';
+  }
+  for (const entry of coverage) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      return 'each coverage entry must be an object {surface, total, inspected}';
+    }
+    if (typeof entry.surface !== 'string' || entry.surface.trim().length < 3) {
+      return 'coverage entry needs a "surface" describing what was swept';
+    }
+    if (!isNonNegativeInteger(entry.total) || !isNonNegativeInteger(entry.inspected)) {
+      return `coverage entry "${entry.surface}" needs integer total and inspected`;
+    }
+    if (entry.inspected > entry.total) {
+      return `coverage entry "${entry.surface}" has inspected (${entry.inspected}) greater than total (${entry.total})`;
+    }
+  }
+  return null;
+}
+
+/**
  * O veredito: achado pendente reprova a publicação.
  *
  * Vive separado da checagem de FORMA de propósito. Antes isto morava junto, e a
@@ -198,6 +229,7 @@ export function scorecardFormError(value, {
     identityError(value, reviewer, base),
     scoreIntegerError(value),
     aggregateShapeError(value),
+    coverageError(value),
     autonomyError(value),
     inspectedShapeError(value),
     freshnessError(value, now, maxAgeSec),
