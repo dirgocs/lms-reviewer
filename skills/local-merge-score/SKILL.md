@@ -434,19 +434,14 @@ Default is inject-context only (not strict). `.lms/` is gitignored runtime state
 | fallow missing          | Skip fallow; note in scorecard                                     |
 | User wants Greptile 5/5 | Direct them to `greploop` / credit policy; LMS is local substitute |
 
-## Isolated reviewer (tmux + pxpipe)
+## Isolated reviewer (tmux)
 
-`pnpm exec lms-reviewer` always tries pxpipe. Imaging allowlist is **auto-resolved**:
-intersection of preferred imaging models × models available on this sub.
-Empty intersection → `PXPIPE_MODELS=off` (pass-through). Per-request imaging
-is pxpipe’s profitability gate. Do not ask the user to toggle pxpipe.
-Byte-exact safety work → subagent on a model outside the imaging allowlist.
+`pnpm exec lms-reviewer` abre a sessão tmux do reviewer no checkout do consumidor.
 
 - Spawn: `pnpm exec lms-reviewer`
 - Auto-trigger on publish: `pnpm exec lms-trigger`
 - Detached spawn for hooks: `LMS_SPAWN_DETACHED=1`
 - Bypass: `LMS_SKIP=1` / `LMS_HOOK_SKIP=1`
-- If proxy missing: graceful OFF (unless `LMS_REQUIRE_PXPIPE=1`)
 
 ## Headless reviewer fallback
 

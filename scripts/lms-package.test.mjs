@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -9,7 +9,7 @@ const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 const skill = readFileSync(join(root, 'skills/local-merge-score/SKILL.md'), 'utf8');
 
 test('v1.1 expoe todos os comandos usados pelo consumidor', () => {
-  assert.equal(pkg.version, '1.1.2');
+  assert.equal(pkg.version, '1.1.3');
   assert.deepEqual(pkg.bin, {
     'lms-trigger': './scripts/lms-reviewer-trigger.sh',
     'lms-reviewer': './scripts/lms-reviewer-spawn.sh',
@@ -37,12 +37,14 @@ test('hook resolve mecanica no pacote, nunca em scripts vendorizados do consumid
   assert.match(hook, /PACKAGE_ROOT/);
 });
 
-test('spawn resolve pxpipe no pacote, nunca em scripts/ do consumidor', () => {
+test('spawn abre tmux sem pxpipe e sem scripts/ do consumidor', () => {
   const spawn = readFileSync(join(root, 'scripts/lms-reviewer-spawn.sh'), 'utf8');
+  assert.doesNotMatch(spawn, /pxpipe/i);
+  assert.doesNotMatch(spawn, /PXPIPE/);
   assert.doesNotMatch(spawn, /\$ROOT\/scripts\//);
   assert.doesNotMatch(spawn, /\.agents\/skills\/local-merge-score/);
-  assert.match(spawn, /PACKAGE_ROOT/);
-  assert.match(spawn, /scripts\/lib\/resolve-pxpipe-models\.sh/);
+  assert.match(spawn, /tmux new-session/);
+  assert.equal(existsSync(join(root, 'scripts/lib/resolve-pxpipe-models.sh')), false);
 });
 
 test('skill documenta somente a interface publica instalada no consumidor', () => {
@@ -53,6 +55,7 @@ test('skill documenta somente a interface publica instalada no consumidor', () =
   assert.match(skill, /pnpm exec lms-trigger/);
   assert.doesNotMatch(skill, /pnpm lms:(?:reviewer|trigger)/);
   assert.doesNotMatch(skill, /pnpm local:review/);
+  assert.doesNotMatch(skill, /pxpipe/i);
   assert.match(skill, /node_modules\/@dirgocs\/lms-reviewer\/hooks\/local-merge-score-gate\.sh/);
 });
 

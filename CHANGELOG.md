@@ -10,6 +10,13 @@ isto instalou o rigor, e um gate que passa a deixar passar é uma regressão sil
 
 ## [Unreleased]
 
+## [1.1.3] - 2026-09-01
+
+### Removido
+
+- pxpipe: o spawn não sobe proxy, não resolve allowlist de imaging e não grava
+  `.lms/pxpipe-*`. A sessão tmux fala direto com o CLI do provider.
+
 ## [1.1.2] - 2026-09-01
 
 ### Corrigido
@@ -86,7 +93,8 @@ Primeira versão como repositório próprio. Extraído do `dirgocs/karibu-erp`.
 - `lms.config.json` inválido **não** vira aprovação silenciosa: avisa no stderr e cai
   no default vazio, que é o modo mais restritivo de prompt e não desliga trava nenhuma.
 
-[Unreleased]: https://github.com/dirgocs/lms-reviewer/compare/v1.1.2...HEAD
+[Unreleased]: https://github.com/dirgocs/lms-reviewer/compare/v1.1.3...HEAD
+[1.1.3]: https://github.com/dirgocs/lms-reviewer/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/dirgocs/lms-reviewer/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/dirgocs/lms-reviewer/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/dirgocs/lms-reviewer/compare/v1.0.0...v1.1.0
