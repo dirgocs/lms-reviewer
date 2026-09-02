@@ -13,7 +13,7 @@ scripts para o pacote pinado por tag.
 Na raiz do projeto consumidor:
 
 ```bash
-pnpm add -D github:dirgocs/lms-reviewer#v1.1.0
+pnpm add -D github:dirgocs/lms-reviewer#v1.1.2
 ```
 
 Ligue o gate ao `pre-push`, preservando os gates de produto que já existirem:

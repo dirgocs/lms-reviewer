@@ -3,10 +3,11 @@
 # Master never toggles imaging; resolve_pxpipe_models is fully automatic.
 # LMS_SPAWN_DETACHED=1 → never attach (for hooks/pre-push).
 set -euo pipefail
-ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="${LMS_REVIEWER_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 cd "$ROOT"
 # shellcheck source=lib/resolve-pxpipe-models.sh
-source "$ROOT/scripts/lib/resolve-pxpipe-models.sh" 2>/dev/null || true
+source "$PACKAGE_ROOT/scripts/lib/resolve-pxpipe-models.sh" 2>/dev/null || true
 
 # Nome da sessao derivado do caminho da raiz: uma sessao por arvore de trabalho.
 # Com nome fixo, dois worktrees revisando ao mesmo tempo disputam as janelas
@@ -108,7 +109,7 @@ BOOTSTRAP="cd $(printf %q "$ROOT") && echo 'LMS reviewer session. Load local-mer
 if command -v claude >/dev/null 2>&1; then
   tmux send-keys -t "$SESSION" "$BOOTSTRAP" C-m
 else
-  tmux send-keys -t "$SESSION" "cd $(printf %q "$ROOT") && echo 'claude CLI not found — run LMS manually: see .agents/skills/local-merge-score/SKILL.md'" C-m
+  tmux send-keys -t "$SESSION" "cd $(printf %q "$ROOT") && echo 'claude CLI not found — run LMS manually: pnpm exec lms-reviewer'" C-m
 fi
 
 echo "Reviewer: tmux attach -t $SESSION"

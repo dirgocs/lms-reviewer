@@ -109,8 +109,8 @@ O caminho depende de **quem está dirigindo**, e a ordem abaixo é a real — n�
 aspiracional. Dizer "prefira `/code-review`" para um agente que não consegue chamá-lo é
 o tipo de documentação que faz perder tempo até descobrir sozinho.
 
-**Agente (caminho principal):** cadeia de revisores em tmux — `pnpm lms:reviewer:tmux`,
-ou automaticamente pelo `pnpm lms:trigger` no pre-push. Cada provider roda na TUI
+**Agente (caminho principal):** cadeia de revisores em tmux — `pnpm exec lms-reviewer-tmux`,
+ou automaticamente pelo `pnpm exec lms-trigger` no pre-push. Cada provider roda na TUI
 dele, com as ferramentas nativas, e grava `.lms/candidates/<provider>.json`. Isso é
 `autonomy: "reviewer"`: revisor independente de verdade, que é a categoria mais forte.
 `LMS_REVIEWER_MODE=headless` volta à invocação headless (CI, container sem TTY).
@@ -229,8 +229,6 @@ Rodar (pode ser lento no monorepo inteiro):
 
 ```bash
 pnpm exec fallow audit --base "$BASE" --format json --quiet 2>/dev/null || true
-# or via orient helper:
-pnpm local:review -- --fallow
 ```
 
 Map:
@@ -279,7 +277,7 @@ Example:
 ```text
 /goal LMS = 5/5 with .lms/last.json written this session; zero P0 and zero P1
 across code-safety, code-structure, code-quality, code-efficiency (conf≥80);
-pnpm local:review evidence in transcript; no @greptile review; stop early and
+pnpm exec fallow evidence in transcript; no @greptile review; stop early and
 escalate if score does not improve for 2 consecutive iterations (plateau);
 hard stop after 8 iterations
 ```
@@ -438,14 +436,14 @@ Default is inject-context only (not strict). `.lms/` is gitignored runtime state
 
 ## Isolated reviewer (tmux + pxpipe)
 
-`pnpm lms:reviewer` always tries pxpipe. Imaging allowlist is **auto-resolved**:
+`pnpm exec lms-reviewer` always tries pxpipe. Imaging allowlist is **auto-resolved**:
 intersection of preferred imaging models × models available on this sub.
 Empty intersection → `PXPIPE_MODELS=off` (pass-through). Per-request imaging
 is pxpipe’s profitability gate. Do not ask the user to toggle pxpipe.
 Byte-exact safety work → subagent on a model outside the imaging allowlist.
 
-- Spawn: `pnpm lms:reviewer`
-- Auto-trigger on publish: `pnpm lms:trigger`
+- Spawn: `pnpm exec lms-reviewer`
+- Auto-trigger on publish: `pnpm exec lms-trigger`
 - Detached spawn for hooks: `LMS_SPAWN_DETACHED=1`
 - Bypass: `LMS_SKIP=1` / `LMS_HOOK_SKIP=1`
 - If proxy missing: graceful OFF (unless `LMS_REQUIRE_PXPIPE=1`)
@@ -466,8 +464,8 @@ The publication gate runs authenticated local reviewers headlessly when
    sem `-`. O `-s read-only` é obrigatório: o codex lê arquivos executando shell, e o
    sandbox é o que impede mutação.
 
-The public entry points are `pnpm lms:reviewer` and `pnpm lms:trigger`; their
-implementation lives in the installed package. Model and timeout overrides are
+The public entry points are `pnpm exec lms-reviewer` and `pnpm exec lms-trigger`;
+their implementation lives in the installed package. Model and timeout overrides are
 `LMS_CLAUDE_MODEL`, `LMS_GROK_MODEL`, `LMS_CODEX_MODEL`,
 `LMS_REVIEWER_ORDER`, and `LMS_REVIEWER_TIMEOUT_SEC`. OAuth remains in each
 CLI's local session; no provider credentials are read or logged by the repo.
@@ -502,7 +500,7 @@ outra metade do problema: os três providers escreviam `reviewer: "Claude Opus 4
 omitiam `base` ou embrulhavam em cerca markdown, e falhavam na validação.
 
 Diagnóstico quando algo falha: `.lms/fallback.log` traz `provider`, `result` e
-`reason` de cada tentativa. `pnpm lms:reviewer` abre a sessão manual.
+`reason` de cada tentativa. `pnpm exec lms-reviewer` abre a sessão manual.
 
 **Reviewer skill allowlist:** code-review, local-merge-score, fallow/fallow-review,
 graphify, ponytail, caveman. **Denylist default:** greploop / `@greptile review`

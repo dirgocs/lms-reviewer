@@ -9,7 +9,7 @@ const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 const skill = readFileSync(join(root, 'skills/local-merge-score/SKILL.md'), 'utf8');
 
 test('v1.1 expoe todos os comandos usados pelo consumidor', () => {
-  assert.equal(pkg.version, '1.1.1');
+  assert.equal(pkg.version, '1.1.2');
   assert.deepEqual(pkg.bin, {
     'lms-trigger': './scripts/lms-reviewer-trigger.sh',
     'lms-reviewer': './scripts/lms-reviewer-spawn.sh',
@@ -37,12 +37,22 @@ test('hook resolve mecanica no pacote, nunca em scripts vendorizados do consumid
   assert.match(hook, /PACKAGE_ROOT/);
 });
 
+test('spawn resolve pxpipe no pacote, nunca em scripts/ do consumidor', () => {
+  const spawn = readFileSync(join(root, 'scripts/lms-reviewer-spawn.sh'), 'utf8');
+  assert.doesNotMatch(spawn, /\$ROOT\/scripts\//);
+  assert.doesNotMatch(spawn, /\.agents\/skills\/local-merge-score/);
+  assert.match(spawn, /PACKAGE_ROOT/);
+  assert.match(spawn, /scripts\/lib\/resolve-pxpipe-models\.sh/);
+});
+
 test('skill documenta somente a interface publica instalada no consumidor', () => {
   assert.doesNotMatch(skill, /\.claude\/hooks\/local-merge-score-gate\.sh/);
   assert.doesNotMatch(skill, /scripts\/lms-reviewer-(?:spawn|trigger)\.sh/);
   assert.doesNotMatch(skill, /scripts\/lms-reviewer-fallback\.mjs/);
-  assert.match(skill, /pnpm lms:reviewer/);
-  assert.match(skill, /pnpm lms:trigger/);
+  assert.match(skill, /pnpm exec lms-reviewer/);
+  assert.match(skill, /pnpm exec lms-trigger/);
+  assert.doesNotMatch(skill, /pnpm lms:(?:reviewer|trigger)/);
+  assert.doesNotMatch(skill, /pnpm local:review/);
   assert.match(skill, /node_modules\/@dirgocs\/lms-reviewer\/hooks\/local-merge-score-gate\.sh/);
 });
 
