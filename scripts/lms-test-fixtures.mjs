@@ -14,3 +14,11 @@ export async function escreverArquivosCitados(root) {
 /** Cobertura padrao dos fixtures: a superficie varrida tem de bater com os
  *  tres arquivos que escreverArquivosCitados cria. */
 export const coberturaFixture = [{ surface: 'arquivos alterados', total: 3, inspected: 3 }];
+
+/** Verificacao padrao dos fixtures: a citacao existe em a.ts. */
+export const verificacaoFixture = [{
+  claim: 'os tres modulos exportam constantes nomeadas',
+  path: 'a.ts',
+  line: 1,
+  quote: 'export const alpha = 1; // linha citada',
+}];

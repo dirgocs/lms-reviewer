@@ -1,6 +1,12 @@
 import { readFile } from 'node:fs/promises';
 
-import { changedOpenablePaths, inspectedShapeError, inspectionError } from './lms-inspection.mjs';
+import {
+  changedOpenablePaths,
+  citationShapeError,
+  citationsDiskError,
+  inspectedShapeError,
+  inspectionError,
+} from './lms-inspection.mjs';
 import { reviewSubject } from './lms-subject.mjs';
 
 const REVIEWERS = new Set(['claude', 'grok', 'codex']);
@@ -109,6 +115,33 @@ function coverageError(value) {
     }
   }
   return null;
+}
+
+const MIN_CLAIM_LENGTH = 20;
+
+/**
+ * O que o revisor conferiu e considera CORRETO, com citacao.
+ *
+ * Existe para dar ao contraditorio algo barato de atacar. Provar ausencia de bug e
+ * caro; derrubar "todos os handlers escopam por tenant" custa achar um handler. Sem
+ * este campo, o refutador so podia discordar do score — uma discordancia sem alvo.
+ */
+function verifiedShapeError(value) {
+  const shape = citationShapeError(value.verified, 'verified');
+  if (shape) return shape;
+  for (const entry of value.verified) {
+    if (typeof entry.claim !== 'string' || entry.claim.trim().length < MIN_CLAIM_LENGTH) {
+      return `verified entry for ${entry.path} needs a "claim" of at least ${MIN_CLAIM_LENGTH} chars saying what holds`;
+    }
+  }
+  return null;
+}
+
+/** Citacoes de `verified` conferidas no disco. Usado pelo gate, junto de inspectionError. */
+export async function verifiedDiskError(scorecard, root = process.cwd()) {
+  const shape = verifiedShapeError(scorecard);
+  if (shape) return shape;
+  return citationsDiskError(scorecard.verified, root);
 }
 
 /**
@@ -232,6 +265,7 @@ export function scorecardFormError(value, {
     coverageError(value),
     autonomyError(value),
     inspectedShapeError(value),
+    verifiedShapeError(value),
     freshnessError(value, now, maxAgeSec),
     subjectError(value, subject),
   ]);
@@ -303,6 +337,11 @@ async function validateFile(args) {
     );
     if (proofError) {
       console.error(`invalid LMS scorecard: ${proofError}`);
+      process.exitCode = 1;
+    }
+    const verifiedError = await verifiedDiskError(value, process.cwd());
+    if (verifiedError) {
+      console.error(`invalid LMS scorecard: ${verifiedError}`);
       process.exitCode = 1;
     }
   } catch (error) {

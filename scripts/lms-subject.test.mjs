@@ -95,6 +95,10 @@ test('scorecard de outro diff nao autoriza publicacao', () => {
       'code-efficiency': { p0: 0, p1: 0, p2: 0 },
     },
     coverage: [{ surface: 'arquivos alterados', total: 1, inspected: 1 }],
+    verified: [{
+      claim: 'o modulo exporta a constante com valor 1',
+      path: 'a.ts', line: 1, quote: 'export const a = 1;',
+    }],
     inspected: [{ path: 'a.ts', line: 1, quote: 'export const a = 1;' }],
   };
   const opts = { reviewer: 'grok', base: 'origin/master' };
@@ -105,7 +109,7 @@ test('scorecard de outro diff nao autoriza publicacao', () => {
     /reviewed a different diff/,
   );
   // Scorecard antigo, sem subject: nao passa quando o gate sabe calcular o atual.
-  const { subject, ...semSubject } = valido;
+  const { subject: _subject, ...semSubject } = valido;
   assert.match(
     scorecardError(semSubject, { ...opts, subject: 'aaaaaaaaaaaaaaaa' }) ?? '',
     /no subject/,

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { escreverArquivosCitados, coberturaFixture } from './lms-test-fixtures.mjs';
+import { escreverArquivosCitados, coberturaFixture, verificacaoFixture } from './lms-test-fixtures.mjs';
 import { join } from 'node:path';
 
 import { PI_SYSTEM_PROMPT, collectPi } from './lms-reviewer-pi.mjs';
@@ -67,6 +67,7 @@ function scorecardFake() {
     },
     findings: [],
     coverage: coberturaFixture,
+    verified: verificacaoFixture,
     inspected: provaDeLeitura,
   };
 }

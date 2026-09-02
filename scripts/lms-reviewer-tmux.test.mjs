@@ -23,6 +23,10 @@ function scorecard(overrides = {}) {
     },
     findings: [],
     coverage: [{ surface: 'arquivos alterados', total: 3, inspected: 3 }],
+    verified: [{
+      claim: 'as funcoes alvo retornam a entrada intacta',
+      path: 'src/um.ts', line: 1, quote: 'export function alvo7(entrada) {',
+    }],
     ...overrides,
   };
 }

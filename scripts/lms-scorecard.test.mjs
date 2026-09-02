@@ -30,12 +30,15 @@ function validScorecard(reviewer = 'grok') {
     autonomy: 'reviewer',
     fallow: 'pass',
     coverage: [{ surface: 'arquivos alterados', total: 3, inspected: 3 }],
+    verified: [
+      { claim: 'o envelope resolve o tenant a partir do JWT', path: 'a.ts', line: 1, quote: 'linha citada verbatim' },
+    ],
     inspected: [{ path: 'a.ts', line: 1, quote: 'linha citada verbatim' }],
   };
 }
 
 test('exige coverage', () => {
-  const { coverage, ...semCoverage } = validScorecard();
+  const { coverage: _coverage, ...semCoverage } = validScorecard();
   assert.match(scorecardFormError(semCoverage, options), /coverage/);
 });
 
@@ -53,6 +56,17 @@ test('recusa superficie sem descricao', () => {
 
 test('aceita coverage bem formado', () => {
   assert.equal(scorecardFormError(validScorecard(), options), null);
+});
+
+test('exige verified com pelo menos uma asercao', () => {
+  const { verified: _verified, ...sem } = validScorecard();
+  assert.match(scorecardFormError(sem, options), /verified/);
+});
+
+test('recusa asercao sem texto de claim', () => {
+  const card = validScorecard();
+  card.verified = [{ claim: 'ok', path: 'a.ts', line: 1, quote: 'linha citada verbatim' }];
+  assert.match(scorecardFormError(card, options), /claim/);
 });
 
 test('accepts a fresh 5/5 scorecard with zero findings', () => {

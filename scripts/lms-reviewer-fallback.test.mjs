@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { escreverArquivosCitados, coberturaFixture } from './lms-test-fixtures.mjs';
+import { escreverArquivosCitados, coberturaFixture, verificacaoFixture } from './lms-test-fixtures.mjs';
 import { join } from 'node:path';
 
 import {
@@ -187,6 +187,10 @@ if (mode === 'review-p2-com-p1-na-lista') {
         title: 'bloqueante escondido', why: 'contador mente' },
     ],
     coverage: [{ surface: 'arquivos alterados', total: 3, inspected: 3 }],
+    verified: [{
+      claim: 'os tres modulos exportam constantes nomeadas',
+      path: 'a.ts', line: 1, quote: 'export const alpha = 1; // linha citada',
+    }],
     inspected: provaDeLeitura,
   }));
   process.exit(0);
@@ -258,6 +262,10 @@ console.log(JSON.stringify({
   }] : [],
   at: new Date().toISOString(),
   coverage: [{ surface: 'arquivos alterados', total: 3, inspected: 3 }],
+  verified: [{
+    claim: 'os tres modulos exportam constantes nomeadas',
+    path: 'a.ts', line: 1, quote: 'export const alpha = 1; // linha citada',
+  }],
   inspected,
 }));
 `;
@@ -324,6 +332,7 @@ function scorecardComAchados(severity, count) {
       why: 'achado semantico',
     })),
     coverage: coberturaFixture,
+    verified: verificacaoFixture,
     inspected: provaDeLeituraFixture,
   };
 }
