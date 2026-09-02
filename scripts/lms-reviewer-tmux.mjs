@@ -88,6 +88,23 @@ export function tuiCommand(provider, model) {
       'Bash(gh pr:*)',
     ];
   }
+  if (provider === 'pi') {
+    // TUI do Pi: GLM via OpenRouter. Allowlist de tools sem bash/edit/write — a
+    // janela é não-assistida e o refutador não publica.
+    return [
+      process.env.LMS_PI_BIN ?? 'pi',
+      '--provider',
+      process.env.LMS_PI_PROVIDER ?? 'openrouter',
+      '--model',
+      model,
+      '--thinking',
+      process.env.LMS_PI_THINKING ?? 'high',
+      '--tools',
+      'read,grep,find',
+      '--exclude-tools',
+      'bash,edit,write',
+    ];
+  }
   if (provider === 'codex') {
     // Sem deny por ferramenta no codex: a trava é o sandbox. `workspace-write` deixa
     // gravar o candidato (read-only não deixaria) e corta a rede, então `git push` e

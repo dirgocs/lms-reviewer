@@ -14,7 +14,7 @@ import { inspectionError } from './lms-inspection.mjs';
 import { loadConfig, projectRoot } from './lms-config.mjs';
 
 const execFile = promisify(execFileCallback);
-const PROVIDERS = ['claude', 'grok', 'codex'];
+const PROVIDERS = ['claude', 'grok', 'codex', 'pi'];
 
 function envList(env, key, fallback) {
   return (env[key] ?? fallback)
@@ -30,6 +30,7 @@ function providerModels(env) {
     // sol, nunca terra: terra é tier de execução intermediária — review exige
     // modelo melhor ou do nível do autor (diretriz Master 2026-08-16).
     codex: env.LMS_CODEX_MODEL ?? 'gpt-5.6-sol',
+    pi: env.LMS_PI_MODEL ?? 'z-ai/glm-5.3-flash',
   };
 }
 
@@ -38,6 +39,7 @@ function providerBins(env) {
     claude: env.LMS_CLAUDE_BIN ?? 'claude',
     grok: env.LMS_GROK_BIN ?? 'grok',
     codex: env.LMS_CODEX_BIN ?? 'codex',
+    pi: env.LMS_PI_BIN ?? 'pi',
   };
 }
 
@@ -103,6 +105,27 @@ export function commandFor(provider, config) {
         'plan',
         '--tools',
         'Read,Grep,Glob',
+      ],
+      input: null,
+    };
+  }
+  if (provider === 'pi') {
+    return {
+      command: config.bins.pi,
+      args: [
+        '--provider',
+        process.env.LMS_PI_PROVIDER ?? 'openrouter',
+        '--model',
+        model,
+        '--thinking',
+        process.env.LMS_PI_THINKING ?? 'high',
+        '--tools',
+        'read,grep,find',
+        '--mode',
+        'json',
+        '--no-session',
+        '-p',
+        config.prompt,
       ],
       input: null,
     };

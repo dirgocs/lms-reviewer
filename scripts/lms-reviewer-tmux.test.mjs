@@ -186,6 +186,17 @@ test('promptEstaRodando reconhece os marcadores dos tres TUIs e recusa prompt pa
   );
 });
 
+test('tui do pi nao invoca codex e restringe tools de mutacao', () => {
+  const cmd = tuiCommand('pi', 'z-ai/glm-5.3-flash');
+  assert.equal(cmd[0], 'pi');
+  assert.ok(cmd.includes('openrouter'));
+  assert.ok(cmd.includes('z-ai/glm-5.3-flash'));
+  assert.ok(!cmd.includes('codex'));
+  const tools = cmd[cmd.indexOf('--tools') + 1];
+  assert.match(tools, /read/);
+  assert.doesNotMatch(tools, /bash|edit|write/i);
+});
+
 test('LMS_GROK_BIN so substitui o TUI com o atestado de trava (rodada 85)', () => {
   const binAnterior = process.env.LMS_GROK_BIN;
   const travaAnterior = process.env.LMS_GROK_BIN_TRAVADO;
