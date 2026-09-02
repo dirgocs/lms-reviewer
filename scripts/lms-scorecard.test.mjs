@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { scorecardFormError, validateScorecard } from './lms-scorecard.mjs';
+import { findingId, findingsShapeError, scorecardFormError, validateScorecard } from './lms-scorecard.mjs';
 
 const now = Date.parse('2026-07-10T00:00:00.000Z');
 const options = {
@@ -92,6 +92,44 @@ test('recusa lente inaplicavel que ainda reporta achado', () => {
   };
   card.p1 = 1;
   assert.match(scorecardFormError(card, options), /applicable: false/);
+});
+
+const achado = () => ({
+  lens: 'code-safety', severity: 'P1', confidence: 90,
+  path: 'src/a.ts:42', title: 'falta filtro de tenant',
+  why: 'a query nao escopa por tenant', fix: 'somar tenantId ao where',
+});
+
+test('findingId ignora o numero da linha', () => {
+  const a = findingId(achado());
+  const b = findingId({ ...achado(), path: 'src/a.ts:45' });
+  assert.equal(a, b);
+});
+
+test('findingId muda quando o titulo muda', () => {
+  assert.notEqual(findingId(achado()), findingId({ ...achado(), title: 'outro defeito' }));
+});
+
+test('recusa severidade fora de P0/P1/P2', () => {
+  assert.match(findingsShapeError({ findings: [{ ...achado(), severity: 'CRITICAL' }] }), /severity/);
+});
+
+test('recusa confidence fora de 0-100', () => {
+  assert.match(findingsShapeError({ findings: [{ ...achado(), confidence: 140 }] }), /confidence/);
+});
+
+test('aceita precondition e acceptance opcionais', () => {
+  assert.equal(
+    findingsShapeError({
+      findings: [{ ...achado(), precondition: 'so com LMS_FIX_MODE=reviewer', acceptance: ['teste X passa'] }],
+    }),
+    null,
+  );
+});
+
+test('aceita ausencia de findings quando nao ha achado', () => {
+  assert.equal(findingsShapeError({ findings: [] }), null);
+  assert.equal(findingsShapeError({}), null);
 });
 
 test('accepts a fresh 5/5 scorecard with zero findings', () => {

@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 
 import {
   changedOpenablePaths,
@@ -129,6 +130,60 @@ function coverageError(value) {
     }
     if (entry.inspected > entry.total) {
       return `coverage entry "${entry.surface}" has inspected (${entry.inspected}) greater than total (${entry.total})`;
+    }
+  }
+  return null;
+}
+
+const SEVERIDADES = new Set(['P0', 'P1', 'P2']);
+
+/**
+ * Identidade estavel de um achado, para segui-lo entre iteracoes.
+ *
+ * A LINHA fica de fora de proposito: o mesmo defeito, depois de o arquivo crescer
+ * tres linhas acima, continua sendo o mesmo defeito. Sem isto o scorecard e um
+ * retrato — nao da para dizer se "corrigi" mudou codigo, nem se o P1 desta rodada e
+ * o mesmo da anterior.
+ */
+export function findingId(finding) {
+  const path = String(finding?.path ?? '').split(':')[0].trim();
+  const material = [finding?.lens ?? '', path, String(finding?.title ?? '').trim().toLowerCase()];
+  return createHash('sha256').update(material.join('\0')).digest('hex').slice(0, 12);
+}
+
+/**
+ * Forma dos achados. `findings` ausente ou vazio e legitimo — e o 5/5.
+ *
+ * `precondition` e opcional e existe para separar achado vivo de achado teorico:
+ * "so exploravel com a flag X ligada" e informacao que muda a severidade e que hoje
+ * nao tinha onde morar.
+ */
+export function findingsShapeError(value) {
+  const findings = value.findings;
+  if (findings === undefined || findings === null) return null;
+  if (!Array.isArray(findings)) return 'findings must be an array';
+  for (const finding of findings) {
+    if (!finding || typeof finding !== 'object' || Array.isArray(finding)) {
+      return 'each finding must be an object';
+    }
+    if (!SEVERIDADES.has(finding.severity)) {
+      return `finding "${finding.title ?? '?'}" needs severity P0, P1 or P2`;
+    }
+    if (!Number.isInteger(finding.confidence) || finding.confidence < 0 || finding.confidence > 100) {
+      return `finding "${finding.title ?? '?'}" needs an integer confidence between 0 and 100`;
+    }
+    for (const campo of ['path', 'title', 'why']) {
+      if (typeof finding[campo] !== 'string' || !finding[campo].trim()) {
+        return `finding "${finding.title ?? '?'}" needs a non-empty ${campo}`;
+      }
+    }
+    if (finding.precondition !== undefined && typeof finding.precondition !== 'string') {
+      return `finding "${finding.title}" has a non-string precondition`;
+    }
+    if (finding.acceptance !== undefined) {
+      if (!Array.isArray(finding.acceptance) || finding.acceptance.some((c) => typeof c !== 'string')) {
+        return `finding "${finding.title}" needs acceptance as an array of strings`;
+      }
     }
   }
   return null;
@@ -283,6 +338,7 @@ export function scorecardFormError(value, {
     autonomyError(value),
     inspectedShapeError(value),
     verifiedShapeError(value),
+    findingsShapeError(value),
     freshnessError(value, now, maxAgeSec),
     subjectError(value, subject),
   ]);

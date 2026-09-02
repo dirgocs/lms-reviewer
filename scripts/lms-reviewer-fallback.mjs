@@ -8,7 +8,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 
-import { scorecardError, scorecardFormError } from './lms-scorecard.mjs';
+import { scorecardError, scorecardFormError, findingId } from './lms-scorecard.mjs';
 import { reviewSubject } from './lms-subject.mjs';
 import { inspectionError } from './lms-inspection.mjs';
 import { loadConfig, projectRoot } from './lms-config.mjs';
@@ -388,6 +388,12 @@ export function reviewPrompt(
     '     you found in this single review — never only the worst one. Rounds are',
     '     expensive: one review reporting five findings beats five rounds reporting',
     '     one each. Different root causes are different entries.',
+    '     Each finding may carry "precondition" (what must be true for it to be',
+    '     exploitable: a flag on, an insecure config, a specific environment) and',
+    '     "acceptance" (list of verifiable criteria that prove the fix). An empty',
+    '     precondition means exploitable as the code stands. Do not invent a',
+    '     precondition to soften a real finding, nor omit it to inflate a theoretical',
+    '     one.',
     '  7. "inspected" is your PROOF OF READING and is verified against disk. For each',
     '     distinct file you opened give {path, line, quote}: `line` is the 1-based line',
     '     number (a small off-by-one is tolerated) and `quote` is that line copied',
@@ -445,7 +451,8 @@ export function reviewPrompt(
     '  "findings": [',
     '    { "lens": "code-safety", "severity": "P1", "confidence": 90,',
     '      "path": "path/to/file.ts:42", "title": "short title",',
-    '      "why": "why it matters", "fix": "suggested fix" }',
+    '      "why": "why it matters", "fix": "suggested fix",',
+    '      "precondition": "", "acceptance": ["test X fails before and passes after"] }',
     '  ]',
     '}',
   ].join('\n');
@@ -600,8 +607,7 @@ function runCommand({ command, args, input, cwd, env, timeoutMs }) {
     );
     child.on('close', (code, signal) => {
       if (timedOut) finish({ kind: 'timeout', code, signal });
-      else if (code !== 0) finish({ kind: 'exit', code, signal });
-      else finish({ kind: 'ok', code, signal });
+      else if (code === 0) finish({ kind: 'ok', code, signal }); else finish({ kind: 'exit', code, signal });
     });
     if (input) child.stdin.write(input);
     child.stdin.end();
@@ -861,6 +867,13 @@ export function stampScorecard(parsed, provider, fallow, base, extra = {}) {
   // O runner crava os fatos objetivos: quem revisou, contra qual base, quando, e o
   // que o fallow mediu. O modelo julga o codigo — nao tem relogio confiavel nem
   // shell, e ja errou `at` com data no futuro e `base` omitido.
+  //
+  // O id do achado entra aqui pelo mesmo motivo: e derivado, nao julgado. Deixar o
+  // modelo inventar id abriria caminho para dois achados iguais com ids diferentes
+  // (e a rastreabilidade entre iteracoes morre em silencio).
+  const findings = Array.isArray(parsed.findings)
+    ? parsed.findings.map((finding) => ({ ...finding, id: finding.id ?? findingId(finding) }))
+    : parsed.findings;
   return {
     ...parsed,
     reviewer: provider,
@@ -868,6 +881,7 @@ export function stampScorecard(parsed, provider, fallow, base, extra = {}) {
     fallow,
     autonomy: 'reviewer',
     at: new Date().toISOString(),
+    ...(findings === undefined ? {} : { findings }),
     ...extra,
   };
 }
