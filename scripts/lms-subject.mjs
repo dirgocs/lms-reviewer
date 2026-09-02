@@ -43,10 +43,24 @@ export async function reviewSubject(root = process.cwd(), base = 'origin/master'
   const dentroDeRepo = await git(root, ['rev-parse', '--git-dir']);
   if (!dentroDeRepo.trim()) return '';
 
-  const partes = [
-    await git(root, ['diff', `${base}...HEAD`]),
-    await git(root, ['diff', 'HEAD']),
-  ];
+  // CONTEÚDO por caminho, e não texto de diff. As duas formas anteriores carregavam
+  // a POSIÇÃO da fronteira junto com os bytes: a soma `base...HEAD` + `diff HEAD`
+  // mudava quando os mesmos bytes eram apenas commitados, e mesmo um diff único
+  // contra o merge-base ainda mudava quando um arquivo NOVO saía de "não rastreado"
+  // (hasheado como caminho+conteúdo) para "rastreado" (hasheado como texto de diff).
+  // Efeito real das duas: revisão limpa feita na árvore suja morria no commit, e o
+  // push re-rodava a cadeia inteira (mediana histórica de 10,3 min) para reler
+  // bytes idênticos.
+  //
+  // A forma estável é uma só: para cada caminho que difere do merge-base — rastreado
+  // ou não — entra `caminho\0conteúdo-atual-do-disco` (vazio para deleção). Commit,
+  // stage e untracked viram embalagem; o hash muda quando bytes mudam, e SÓ quando
+  // bytes mudam.
+  const mergeBase = (await git(root, ['merge-base', base, 'HEAD'])).trim();
+  const alterados = (await git(root, ['diff', '--name-only', mergeBase || base, '--']))
+    .split('\n')
+    .map((linha) => linha.trim())
+    .filter(Boolean);
 
   // `status --porcelain` colapsa diretório não rastreado numa linha só (`?? dir/`),
   // então mudar arquivo dentro dele não mexia no hash — metade da amarra da árvore
@@ -54,12 +68,13 @@ export async function reviewSubject(root = process.cwd(), base = 'origin/master'
   const naoRastreados = (await git(root, ['ls-files', '--others', '--exclude-standard']))
     .split('\n')
     .map((linha) => linha.trim())
-    .filter(Boolean)
-    .sort();
+    .filter(Boolean);
 
-  for (const caminho of naoRastreados) {
-    // Nome não basta: um arquivo novo pode mudar de conteúdo sem mudar de nome, e o
-    // revisor precisa ser refeito quando isso acontece.
+  const caminhos = [...new Set([...alterados, ...naoRastreados])].sort();
+  const partes = [];
+  for (const caminho of caminhos) {
+    // Nome não basta: o mesmo arquivo pode mudar de conteúdo sem mudar de nome, e o
+    // revisor precisa ser refeito quando isso acontece. Deleção entra como vazio.
     partes.push(caminho, await readFile(join(root, caminho), 'utf8').catch(() => ''));
   }
 

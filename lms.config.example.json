@@ -15,13 +15,13 @@
     "mesma história imutável. NÃO declare se o projeto não tem migrations: seria",
     "isentar uma pasta inexistente."
   ],
-  "migrationsPath": "services/api/migrations/",
+  "migrationsPath": "database/migrations/",
 
   "$dbStateGate": [
     "Script que cobre o estado vivo do banco em CI. Só entra no prompt para dizer",
     "ao revisor que esse risco é coberto em outro lugar."
   ],
-  "dbStateGate": "scripts/db-exposure-gate.mjs",
+  "dbStateGate": "scripts/db-state-gate.mjs",
 
   "$fallow": [
     "Gate de regressão de métrica, medido pelo RUNNER (não declarado pelo",
@@ -29,7 +29,18 @@
     "medição não acontece e o veredito é 'no-changes'."
   ],
   "fallow": {
-    "gate": "apps/pdv-mobile/scripts/fallow-regression-gate.mjs",
+    "gate": "scripts/fallow-regression-gate.mjs",
     "baseline": ".fallow/baseline.json"
-  }
+  },
+
+  "$exemptPaths": [
+    "Todo arquivo precisa casar com pelo menos uma regex para o conjunto ser isento.",
+    "O default, se a chave faltar, cobre docs/ e extensoes de texto/documentacao."
+  ],
+  "exemptPaths": ["^docs/", "\\.(md|mdx|txt|rst)$"],
+
+  "$nonExemptPaths": [
+    "Excecoes prioritarias dentro de prefixos isentos; qualquer match barra a isencao."
+  ],
+  "nonExemptPaths": ["^docs/runtime/"]
 }

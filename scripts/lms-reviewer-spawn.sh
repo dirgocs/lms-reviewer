@@ -103,8 +103,8 @@ tmux new-session -d -s "$SESSION" -c "$ROOT"
 [ -n "${ANTHROPIC_BASE_URL:-}" ] && tmux set-environment -t "$SESSION" ANTHROPIC_BASE_URL "$ANTHROPIC_BASE_URL"
 [ -n "${PXPIPE_MODELS:-}" ] && tmux set-environment -t "$SESSION" PXPIPE_MODELS "$PXPIPE_MODELS"
 
-# Bootstrap prompt: LMS skill path; greploop denylisted for auto spend
-BOOTSTRAP="cd $(printf %q "$ROOT") && echo 'LMS reviewer session. Load local-merge-score. No @greptile/greploop unless Master asked.' && claude --model \"${LMS_CLAUDE_MODEL:-claude-opus-4-8}\" --effort high"
+# Bootstrap prompt: LMS skill path; Greptile fora do pipeline (2026-08-27)
+BOOTSTRAP="cd $(printf %q "$ROOT") && echo 'LMS reviewer session. Load local-merge-score. Greptile saiu do pipeline; apenas LMS.' && claude --model \"${LMS_CLAUDE_MODEL:-claude-opus-4-8}\" --effort high"
 if command -v claude >/dev/null 2>&1; then
   tmux send-keys -t "$SESSION" "$BOOTSTRAP" C-m
 else

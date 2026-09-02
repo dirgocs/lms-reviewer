@@ -47,7 +47,13 @@ function normalizeQuote(text) {
  */
 async function quoteMatches(root, path, line, quote) {
   const wanted = normalizeQuote(quote);
-  if (wanted.length < MIN_QUOTE_LENGTH) return false;
+  if (!wanted) return false;
+  // Linha honesta pode ser CURTA — `db.commit()` tem 11 caracteres, e recusá-la
+  // custou rodadas inteiras (o sintoma era o enganoso "quote does not match" numa
+  // citação literalmente correta). Curto não vira brecha: abaixo do piso o trecho
+  // só vale se for a linha INTEIRA normalizada, então citar um fragmento genérico
+  // ("return", "});") continua impossível — fragmento não é igual a linha nenhuma.
+  const exigeLinhaInteira = wanted.length < MIN_QUOTE_LENGTH;
   let content;
   try {
     content = await readFile(join(root, path), 'utf8');
@@ -57,6 +63,14 @@ async function quoteMatches(root, path, line, quote) {
   const lines = content.split('\n');
   const index = Number(line) - 1;
   if (!Number.isInteger(index)) return false;
+  // A exceção curta abre mão da janela ±3, de propósito: `);` e `}` normalizados são
+  // linhas inteiras válidas em quase qualquer arquivo, e com janela a chance de um
+  // vizinho casar por acaso cresce demais. Quem cita linha curta tem entropia menor
+  // para provar leitura — compensa com o número EXATO. A janela continua valendo
+  // para citação longa, onde off-by-one não é fabricação.
+  if (exigeLinhaInteira) {
+    return index >= 0 && index < lines.length && normalizeQuote(lines[index]) === wanted;
+  }
   const from = Math.max(0, index - LINE_WINDOW);
   const to = Math.min(lines.length, index + LINE_WINDOW + 1);
   for (let i = from; i < to; i += 1) {
@@ -108,7 +122,7 @@ export function inspectedShapeError(value) {
     if (!Number.isInteger(entry.line) || entry.line < 1) {
       return `inspected entry for ${entry.path} needs a 1-based integer line`;
     }
-    if (typeof entry.quote !== 'string' || entry.quote.trim().length < MIN_QUOTE_LENGTH) {
+    if (typeof entry.quote !== 'string' || !entry.quote.trim()) {
       return `inspected entry for ${entry.path} needs a verbatim quote of the line`;
     }
   }

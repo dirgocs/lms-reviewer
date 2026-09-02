@@ -2,7 +2,9 @@
 # Exit 0 if LMS scorecard OK. Else run authenticated headless reviewers.
 # Used by PreToolUse gate and husky pre-push (D18).
 set -euo pipefail
+PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT="${LMS_REVIEWER_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+export LMS_PROJECT_ROOT="$ROOT"
 cd "$ROOT"
 SCORECARD="$ROOT/.lms/last.json"
 MAX_AGE="${LMS_HOOK_MAX_AGE_SEC:-7200}"
@@ -33,14 +35,14 @@ SESSION="${LMS_TMUX_SESSION:-$(lms_session_name "$ROOT")}"
 # prompt), nao de revisao. LMS_REVIEWER_MODE=headless volta ao caminho antigo, que
 # continua testado e serve onde nao ha tmux (CI, container sem TTY).
 case "${LMS_REVIEWER_MODE:-tmux}" in
-  headless) DEFAULT_RUNNER="$ROOT/scripts/lms-reviewer-fallback.mjs" ;;
-  *)        DEFAULT_RUNNER="$ROOT/scripts/lms-reviewer-tmux.mjs" ;;
+  headless) DEFAULT_RUNNER="$PACKAGE_ROOT/scripts/lms-reviewer-fallback.mjs" ;;
+  *)        DEFAULT_RUNNER="$PACKAGE_ROOT/scripts/lms-reviewer-tmux.mjs" ;;
 esac
 # Sem tmux no PATH nao adianta insistir: cai para o headless em vez de falhar por algo
 # que nao tem a ver com o codigo em revisao.
 if [ "$DEFAULT_RUNNER" != "${DEFAULT_RUNNER%tmux.mjs}" ] && ! command -v tmux >/dev/null 2>&1; then
   echo "lms-trigger: tmux ausente; usando a cadeia headless" >&2
-  DEFAULT_RUNNER="$ROOT/scripts/lms-reviewer-fallback.mjs"
+  DEFAULT_RUNNER="$PACKAGE_ROOT/scripts/lms-reviewer-fallback.mjs"
 fi
 RUNNER="${LMS_REVIEWER_RUNNER:-$DEFAULT_RUNNER}"
 
@@ -62,8 +64,8 @@ resolve_base() {
 BASE_REF="${LMS_REVIEWER_BASE:-$(resolve_base)}"
 
 scorecard_ok() {
-  [ -f "$ROOT/scripts/lms-scorecard.mjs" ] || return 1
-  node "$ROOT/scripts/lms-scorecard.mjs" \
+  [ -f "$PACKAGE_ROOT/scripts/lms-scorecard.mjs" ] || return 1
+  node "$PACKAGE_ROOT/scripts/lms-scorecard.mjs" \
     --file "$SCORECARD" \
     --base "$BASE_REF" \
     --max-age-sec "$MAX_AGE" \

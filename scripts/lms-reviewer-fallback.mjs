@@ -6,17 +6,21 @@ import { promisify } from 'node:util';
 import { join } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { randomUUID } from 'node:crypto';
 
 import { scorecardError, scorecardFormError } from './lms-scorecard.mjs';
 import { reviewSubject } from './lms-subject.mjs';
 import { inspectionError } from './lms-inspection.mjs';
-import { loadConfig } from './lms-config.mjs';
+import { loadConfig, projectRoot } from './lms-config.mjs';
 
 const execFile = promisify(execFileCallback);
 const PROVIDERS = ['claude', 'grok', 'codex'];
 
 function envList(env, key, fallback) {
-  return (env[key] ?? fallback).split(',').map((value) => value.trim()).filter(Boolean);
+  return (env[key] ?? fallback)
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
 }
 
 function providerModels(env) {
@@ -46,6 +50,11 @@ export function providerConfig(env = process.env) {
   return {
     order: envList(env, 'LMS_REVIEWER_ORDER', 'claude,grok,codex'),
     claudeEffort: env.LMS_CLAUDE_EFFORT,
+    // `xhigh`, não `high` (diretriz Master 2026-08-27). Review é o trabalho mais
+    // difícil da cadeia: o revisor tem de refutar código já defendido em comentário,
+    // e cada rodada perdida custa 8–20 min. Esforço a mais aqui é barato comparado
+    // com achado que passa.
+    codexEffort: env.LMS_CODEX_EFFORT ?? 'xhigh',
     models: providerModels(env),
     bins: providerBins(env),
     timeoutMs: timeoutMs(env),
@@ -59,15 +68,20 @@ export function commandFor(provider, config) {
     return {
       ...common,
       args: [
-        '--model', model,
+        '--model',
+        model,
         // effort configurável: refutador Fable roda em medium por decisão do
         // Master (2026-08-19); default preserva o comportamento anterior
-        '--effort', config.claudeEffort ?? 'high',
+        '--effort',
+        config.claudeEffort ?? 'high',
         '--print',
-        '--output-format', 'json',
+        '--output-format',
+        'json',
         '--no-session-persistence',
-        '--permission-mode', 'plan',
-        '--tools', 'Read,Grep,Glob',
+        '--permission-mode',
+        'plan',
+        '--tools',
+        'Read,Grep,Glob',
       ],
     };
   }
@@ -75,14 +89,20 @@ export function commandFor(provider, config) {
     return {
       ...common,
       args: [
-        '--model', model,
+        '--model',
+        model,
         // medium de propósito: empiricamente o grok-4.6 revisa melhor em medium
         // do que em high (decisão do Master, 2026-08-15).
-        '--reasoning-effort', 'medium',
-        '--single', config.prompt,
-        '--output-format', 'json',
-        '--permission-mode', 'plan',
-        '--tools', 'Read,Grep,Glob',
+        '--reasoning-effort',
+        'medium',
+        '--single',
+        config.prompt,
+        '--output-format',
+        'json',
+        '--permission-mode',
+        'plan',
+        '--tools',
+        'Read,Grep,Glob',
       ],
       input: null,
     };
@@ -95,12 +115,15 @@ export function commandFor(provider, config) {
       ...common,
       args: [
         'exec',
-        '--model', model,
-        '-c', 'model_reasoning_effort="high"',
+        '--model',
+        model,
+        '-c',
+        `model_reasoning_effort="${config.codexEffort ?? 'xhigh'}"`,
         // Sandbox read-only: o codex le arquivos executando shell (cat, sed), entao
         // ele PRECISA de shell. O que nao pode e mutacao — e isso o sandbox garante,
         // melhor do que uma instrucao em prosa.
-        '-s', 'read-only',
+        '-s',
+        'read-only',
         '--json',
         config.prompt,
       ],
@@ -112,6 +135,22 @@ export function commandFor(provider, config) {
 
 const DIFF_STAT_LIMIT = 12_000;
 
+/** Artefato GERADO não é código para revisar — e pior, empurra o código humano para
+ *  fora do mapa. `packages/api-db-client/generated` sozinho respondia por 168 dos 286
+ *  arquivos deste diff; ordenado por caminho, ele consumia o teto de
+ *  `DIFF_STAT_LIMIT` ANTES de chegar em `services/`, e os 71 arquivos do ERP e do
+ *  fiscal simplesmente não apareciam para nenhum reviewer. Um mapa truncado não avisa
+ *  que truncou: a cadeia parecia estar revisando tudo. */
+const CAMINHOS_GERADOS = [
+  ':(exclude)packages/api-db-client/generated/**',
+  // Pathspec exige a '/' literal: `**/pnpm-lock.yaml` NAO casa o lockfile da RAIZ —
+  // justamente o do bump de dependencia, o caso mais comum. A raiz precisa do proprio
+  // padrao nos DOIS lugares (exclusao aqui, contagem do aviso abaixo).
+  ':(exclude)pnpm-lock.yaml',
+  ':(exclude)**/pnpm-lock.yaml',
+  ':(exclude)graphify-out/**',
+];
+
 /**
  * O que mudou, para ir DENTRO do prompt.
  *
@@ -121,7 +160,7 @@ const DIFF_STAT_LIMIT = 12_000;
  * deixar as ferramentas de leitura para abrir os arquivos resolve sem conceder
  * mutação a um reviewer.
  */
-async function diffContext(root, base) {
+export async function diffContext(root, base) {
   const run = async (args) => {
     try {
       const { stdout } = await execFile('git', args, { cwd: root, maxBuffer: 32 * 1024 * 1024 });
@@ -130,21 +169,67 @@ async function diffContext(root, base) {
       return '';
     }
   };
-  const stat = await run(['diff', '--stat', `${base}...HEAD`]);
-  const commitados = await run(['diff', '--name-status', `${base}...HEAD`]);
+  const stat = await run(['diff', '--stat', `${base}...HEAD`, '--', '.', ...CAMINHOS_GERADOS]);
+  const commitados = await run([
+    'diff',
+    '--name-status',
+    `${base}...HEAD`,
+    '--',
+    '.',
+    ...CAMINHOS_GERADOS,
+  ]);
   const log = await run(['log', '--oneline', `${base}..HEAD`]);
+  const gerados = (
+    await run([
+      'diff',
+      '--name-only',
+      `${base}...HEAD`,
+      '--',
+      'packages/api-db-client/generated',
+      'pnpm-lock.yaml',
+      '**/pnpm-lock.yaml',
+      'graphify-out',
+    ])
+  )
+    .split('\n')
+    .filter(Boolean).length;
 
   // Árvore suja e arquivos novos entram no contexto. Antes o revisor via só
   // `base...HEAD` e julgava um mapa desatualizado: foi assim que ele reportou como
   // ausente um `-s read-only` que já estava no disco. O `subject` do gate já conta
   // essas mudanças, então revisar sem elas seria bloquear por algo que ninguém viu.
-  const sujos = await run(['diff', '--name-status', 'HEAD']);
+  const sujos = await run(['diff', '--name-status', 'HEAD', '--', '.', ...CAMINHOS_GERADOS]);
   const novosArquivos = (await run(['ls-files', '--others', '--exclude-standard']))
     .split('\n')
     .map((linha) => linha.trim())
     .filter(Boolean);
   const novos = novosArquivos.map((caminho) => `A\t${caminho}`).join('\n');
   const names = [commitados, sujos, novos].filter(Boolean).join('\n');
+  const numstat = [
+    await run(['diff', '--numstat', `${base}...HEAD`, '--', '.', ...CAMINHOS_GERADOS]),
+    await run(['diff', '--numstat', 'HEAD', '--', '.', ...CAMINHOS_GERADOS]),
+  ]
+    .filter(Boolean)
+    .join('\n');
+  const linhasRastreadas = numstat.split('\n').reduce((total, linha) => {
+    const [adicoes, remocoes] = linha.split('\t');
+    return total + (Number(adicoes) || 0) + (Number(remocoes) || 0);
+  }, 0);
+  const linhasNovas = (
+    await Promise.all(
+      novosArquivos.map(async (caminho) => {
+        try {
+          const conteudo = await readFile(join(root, caminho), 'utf8');
+          return conteudo === ''
+            ? 0
+            : conteudo.split('\n').length - Number(conteudo.endsWith('\n'));
+        } catch {
+          return 0;
+        }
+      }),
+    )
+  ).reduce((total, linhas) => total + linhas, 0);
+  const changedLines = linhasRastreadas + linhasNovas;
 
   const clip = (text, limit) =>
     text.length > limit ? `${text.slice(0, limit)}\n… (truncado)` : text;
@@ -160,16 +245,36 @@ async function diffContext(root, base) {
       .split('\n')
       .filter((line) => line.trim() && !line.startsWith('D'))
       .map((line) => {
-        const fields = line.split('\t').map((field) => field.trim()).filter(Boolean);
+        const fields = line
+          .split('\t')
+          .map((field) => field.trim())
+          .filter(Boolean);
         return fields.at(-1) ?? '';
       })
       .filter(Boolean),
   );
 
+  // Corte silencioso lê-se como "revisei tudo". Quando o mapa não coube, ou quando
+  // artefato gerado ficou de fora, o reviewer precisa SABER — é a diferença entre
+  // "não há mais nada" e "não te mostrei o resto".
+  const truncou = (t) => t.length > DIFF_STAT_LIMIT;
+  const avisos = [
+    gerados > 0
+      ? `Fora do mapa de propósito: ${gerados} arquivo(s) de artefato gerado ` +
+        '(packages/api-db-client/generated, lockfiles, graphify-out). Não são código ' +
+        'para revisar; não os abra e não os cite em `inspected`.'
+      : '',
+    truncou(names) || truncou(stat)
+      ? 'ATENÇÃO: a lista abaixo foi TRUNCADA no limite do prompt — existem arquivos ' +
+        'alterados que ela não mostra. Trate-a como amostra, não como inventário.'
+      : '',
+  ].filter(Boolean);
+
   const text = [
     'Commits nesta branch:',
     clip(log, 4_000) || '(nenhum)',
     '',
+    ...(avisos.length ? [...avisos, ''] : []),
     'Arquivos alterados (A=add M=modify D=delete) — inclui o que ainda não foi commitado:',
     clip(names, DIFF_STAT_LIMIT) || '(nenhum)',
     '',
@@ -177,7 +282,7 @@ async function diffContext(root, base) {
     clip(stat, DIFF_STAT_LIMIT) || '(vazio)',
   ].join('\n');
 
-  return { text, paths };
+  return { text, paths, changedFiles: paths.size, changedLines };
 }
 
 // Migration é append-only, e sem esta regra a cadeia não converge: o diff de uma
@@ -188,8 +293,8 @@ async function diffContext(root, base) {
 // Só entra no prompt quando o projeto declara `migrationsPath` em lms.config.json.
 // Sem isso a regra mandaria o revisor isentar uma pasta que não existe no repo —
 // uma isenção gratuita no gate.
-function regraMigrationAplicada() {
-  const { migrationsPath, dbStateGate } = loadConfig();
+function regraMigrationAplicada(root = projectRoot()) {
+  const { migrationsPath, dbStateGate } = loadConfig(root);
   if (!migrationsPath) return [];
   return [
     'Migrations are append-only history, not editable code. A file under',
@@ -204,7 +309,12 @@ function regraMigrationAplicada() {
   ];
 }
 
-export function reviewPrompt(base, reviewer = '<claude|grok|codex>', changed = '', outputPath = '') {
+export function reviewPrompt(
+  base,
+  _reviewer = '<claude|grok|codex>',
+  changed = '',
+  outputPath = '',
+) {
   // O contrato tem de ser LITERAL. A versão anterior pedia "um JSON com reviewer,
   // score, target, base..." em prosa, e os três providers falhavam na validação:
   // escreviam `reviewer: "Claude Opus 4.8"`, omitiam `base`, ou embrulhavam em cerca
@@ -214,9 +324,9 @@ export function reviewPrompt(base, reviewer = '<claude|grok|codex>', changed = '
     'code-structure, code-quality, code-efficiency.',
     '',
     outputPath
-      // Na TUI o revisor GRAVA o scorecard: é o único arquivo que ele pode tocar, e é
-      // também o sinal de que terminou — o runner espera esse arquivo aparecer.
-      ? `Do NOT commit, push, open a PR, run Greptile, or change runtime state. The ONLY file you may write is ${outputPath}.`
+      ? // Na TUI o revisor GRAVA o scorecard: é o único arquivo que ele pode tocar, e é
+        // também o sinal de que terminou — o runner espera esse arquivo aparecer.
+        `Do NOT commit, push, open a PR, run Greptile, or change runtime state. The ONLY file you may write is ${outputPath}.`
       : 'Do NOT edit files, commit, push, open a PR, run Greptile, or change runtime state.',
     '',
     'You CAN read files with whatever tools you have (file readers, grep, or shell',
@@ -229,10 +339,10 @@ export function reviewPrompt(base, reviewer = '<claude|grok|codex>', changed = '
     '',
     'Output rules — a deviation makes the review be discarded:',
     outputPath
-      ? `  1. Write EXACTLY ONE JSON object to ${outputPath} — the file must contain the`
-        + '     object and nothing else. No prose, no markdown fences, no ``` of any kind.'
-      : '  1. Print EXACTLY ONE JSON object and nothing else. No prose before or after,'
-        + ' no markdown fences, no ``` of any kind.',
+      ? `  1. Write EXACTLY ONE JSON object to ${outputPath} — the file must contain the` +
+        '     object and nothing else. No prose, no markdown fences, no ``` of any kind.'
+      : '  1. Print EXACTLY ONE JSON object and nothing else. No prose before or after,' +
+        ' no markdown fences, no ``` of any kind.',
     '  2. Do NOT include "reviewer", "base", "at", "autonomy" or "fallow" — the runner',
     '     fills those in. Anything you write there is overwritten.',
     '  3. "target" MUST be 5. "score" and every count MUST be integers.',
@@ -295,7 +405,9 @@ async function mergeBase(root, candidate) {
 
 async function resolveBase(root) {
   const candidates = await Promise.all(
-    ['origin/master', 'origin/main', 'master', 'main'].map((candidate) => mergeBase(root, candidate)),
+    ['origin/master', 'origin/main', 'master', 'main'].map((candidate) =>
+      mergeBase(root, candidate),
+    ),
   );
   const resolved = candidates.find(Boolean);
   if (resolved) return resolved;
@@ -335,7 +447,10 @@ function parseJsonCandidate(value) {
  * "scorecard must be a JSON object".
  */
 function candidatesFromLines(value, seen, aceita = ehScorecard) {
-  const lines = value.split('\n').map((line) => line.trim()).filter((line) => line.startsWith('{'));
+  const lines = value
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('{'));
   if (lines.length < 2) return [];
   return lines.flatMap((line) => {
     const parsed = parseJsonCandidate(line);
@@ -423,7 +538,9 @@ function runCommand({ command, args, input, cwd, env, timeoutMs }) {
       clearTimeout(timer);
       resolve({ ...result, stdout: getStdout(), stderr: getStderr() });
     };
-    child.on('error', (error) => finish({ kind: error.code === 'ENOENT' ? 'missing-cli' : 'error', error }));
+    child.on('error', (error) =>
+      finish({ kind: error.code === 'ENOENT' ? 'missing-cli' : 'error', error }),
+    );
     child.on('close', (code, signal) => {
       if (timedOut) finish({ kind: 'timeout', code, signal });
       else if (code !== 0) finish({ kind: 'exit', code, signal });
@@ -442,6 +559,28 @@ async function writeScorecard(root, value) {
   await rename(temporary, join(dir, 'last.json'));
 }
 
+function telemetryData(round, estagio, provider, config, value) {
+  const direct = ['p0', 'p1', 'p2'].every((key) => Number.isInteger(value?.[key]));
+  const extras = Array.isArray(value?.extra_findings) ? value.extra_findings : [];
+  const findings = value?.refuted === true ? [value, ...extras] : [];
+  const count = (severity) => findings.filter((finding) => finding.severity === severity).length;
+  const p0 = direct ? value.p0 : count('P0');
+  const p1 = direct ? value.p1 : count('P1');
+  const p2 = direct ? value.p2 : count('P2');
+  let findingsCount = findings.length;
+  if (direct) findingsCount = Array.isArray(value.findings) ? value.findings.length : p0 + p1 + p2;
+  return {
+    ...round,
+    estagio,
+    provider,
+    modelo: config.models?.[provider] ?? '',
+    p0,
+    p1,
+    p2,
+    findings_count: findingsCount,
+  };
+}
+
 async function logAttempt(root, provider, result, durationMs, extra = '', dados = {}) {
   const dir = join(root, '.lms');
   await mkdir(dir, { recursive: true });
@@ -451,14 +590,122 @@ async function logAttempt(root, provider, result, durationMs, extra = '', dados 
     `${new Date().toISOString()} provider=${provider} result=${result} duration_ms=${durationMs}${suffix}\n`,
     'utf8',
   );
-  // Histórico em JSONL ao lado do log legível: `.lms/last.json` é sobrescrito a cada
-  // rodada, então não havia como ver que um provider aceitou 40 de 40 — o sinal mais
-  // barato de reviewer complacente, e o único invisível hoje.
   await appendFile(
     join(dir, 'history.jsonl'),
-    `${JSON.stringify({ at: new Date().toISOString(), provider, result, durationMs, ...dados })}\n`,
+    `${JSON.stringify({
+      ...dados,
+      provider,
+      resultado: result,
+      duration_ms: durationMs,
+      at: new Date().toISOString(),
+      // Compatibilidade com consumidores do histórico parcial anterior.
+      result,
+      durationMs,
+    })}\n`,
     'utf8',
   );
+}
+
+const POLITICA_ATIVA = (env = process.env) => env.LMS_SEVERITY_POLICY === '1';
+
+const CAMPANHA_PADRAO = { semanticRounds: 0, lastCount: null, stalled: 0 };
+
+async function campanha(root) {
+  try {
+    return JSON.parse(await readFile(join(root, '.lms', 'severity-campaign.json'), 'utf8'));
+  } catch {
+    return { ...CAMPANHA_PADRAO };
+  }
+}
+
+async function salvarCampanha(root, estado) {
+  const dir = join(root, '.lms');
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, 'severity-campaign.json'), JSON.stringify(estado), 'utf8');
+}
+
+async function apagarCampanha(root) {
+  await rm(join(root, '.lms', 'severity-campaign.json'), { force: true });
+}
+
+/** Achado P2 válido para a fila: P2 declarada, confiança >= 80 e ACIONÁVEL.
+ *
+ *  Acionável exige path, título e justificativa (achado da rodada 90): a
+ *  validação de forma do scorecard não olha o conteúdo dos findings, então um
+ *  P2 vazio virava aceite 5/5 com uma linha inútil na fila — a saída malformada
+ *  do reviewer deixava de ser rejeitada e o débito ficava intratável. Sem os
+ *  três campos, o achado NÃO enfileira: cai no caminho normal e bloqueia. */
+function eP2Enfileiravel(achado) {
+  const severidade = String(achado?.severity ?? '')
+    .trim()
+    .toUpperCase();
+  if (severidade !== 'P2' || Number(achado?.confidence ?? 80) < 80) return false;
+  const naoVazio = (valor) => String(valor ?? '').trim().length > 0;
+  if (!naoVazio(achado?.path) || !naoVazio(achado?.title) || !naoVazio(achado?.why)) return false;
+  // Confiança tem de ser NÚMERO FINITO (achado da rodada 92): `Number('alto')` é
+  // NaN, e `NaN < 80` é false — a checagem anterior deixava passar confiança
+  // inválida. E `path` precisa de linha: sem `arquivo:linha` a dívida na fila
+  // não é rastreável até o ponto do defeito.
+  const confianca = Number(achado?.confidence ?? 80);
+  if (!Number.isFinite(confianca)) return false;
+  return /:\d+/.test(String(achado.path));
+}
+
+async function commitDeOrigem(root) {
+  try {
+    const { stdout } = await execFile('git', ['rev-parse', '--short', 'HEAD'], { cwd: root });
+    return stdout.trim();
+  } catch {
+    return '';
+  }
+}
+
+/** Fila P2 (KDT-136 fase C): append-only, um JSON por achado. */
+async function enfileirarP2(root, achados, round, commit) {
+  if (achados.length === 0) return 0;
+  const dir = join(root, '.lms');
+  await mkdir(dir, { recursive: true });
+  const linhas = achados.map((achado) =>
+    JSON.stringify({
+      path: achado.path ?? '',
+      title: achado.title ?? '',
+      lens: achado.lens ?? '',
+      confidence: Number(achado.confidence ?? 80),
+      // `why` e `fix` vão junto (achado da rodada 90): o achado sai do scorecard
+      // ao virar aceite, então a fila passa a ser a ÚNICA memória do débito —
+      // sem a justificativa e a correção sugerida, quem for pagar depois não tem
+      // como saber por que aquilo era defeito.
+      why: achado.why ?? '',
+      fix: achado.fix ?? '',
+      commit,
+      round_id: round.round_id,
+    }),
+  );
+  await appendFile(join(dir, 'p2-queue.jsonl'), `${linhas.join('\n')}\n`, 'utf8');
+  return achados.length;
+}
+
+/** Identidade estável de um achado — `structuredClone` cria objetos NOVOS, então
+ *  comparar por referência nunca casa (achado da rodada 91: o scorecard aceito
+ *  ficava com score 5, p2=0 e os P2 ainda listados em `findings`). */
+function chaveDoAchado(achado) {
+  return `${achado?.path ?? ''}|${achado?.title ?? ''}|${achado?.lens ?? ''}`;
+}
+
+/** Rodada P2-only vira aceite: os P2 saem do scorecard (score volta a 5) e a fila registra. */
+function neutralizarP2(scorecard, enfileirados) {
+  const proximo = structuredClone(scorecard);
+  const chaves = new Set(enfileirados.map(chaveDoAchado));
+  proximo.findings = (proximo.findings ?? []).filter(
+    (finding) => !chaves.has(chaveDoAchado(finding)),
+  );
+  proximo.p2 -= enfileirados.length;
+  for (const achado of enfileirados) {
+    const lens = LENSES.includes(achado.lens) ? achado.lens : 'code-quality';
+    if (proximo.lenses[lens]) proximo.lenses[lens].p2 -= 1;
+  }
+  proximo.score = Math.max(proximo.score, 5);
+  return proximo;
 }
 
 function childEnvironment(env, provider, base) {
@@ -485,10 +732,14 @@ function childEnvironment(env, provider, base) {
 async function fallowOnce(root, gate, baseline) {
   const current = join(tmpdir(), `lms-fallow-${process.pid}-${Date.now()}.json`);
   try {
-    await execFile('sh', ['-c', `pnpm exec fallow --format json --quiet > ${JSON.stringify(current)}`], {
-      cwd: root,
-      maxBuffer: 64 * 1024 * 1024,
-    });
+    await execFile(
+      'sh',
+      ['-c', `pnpm exec fallow --format json --quiet > ${JSON.stringify(current)}`],
+      {
+        cwd: root,
+        maxBuffer: 64 * 1024 * 1024,
+      },
+    );
     const { stdout } = await execFile('node', [gate, baseline, current], { cwd: root });
     // Exit 0 não basta: o gate também sai 0 quando um dos envelopes está malformado,
     // avisando e sem comparar nada. Aprovar nesse caso seria aceitar a AUSÊNCIA de
@@ -571,7 +822,12 @@ export function stampScorecard(parsed, provider, fallow, base, extra = {}) {
  * validação de forma, veredito, gravação — é o mesmo nos dois casos e mora aqui.
  */
 export async function collectHeadless({
-  root, provider, config, base, prompt, env,
+  root,
+  provider,
+  config,
+  base,
+  prompt,
+  env,
   // O extrator padrao so aceita objeto com forma de scorecard. O contraditorio tem
   // forma propria ({refuted, confidence, ...}), entao quem chama diz como ler.
   parse = normalizeProviderOutput,
@@ -588,17 +844,42 @@ export async function collectHeadless({
 }
 
 export async function attemptProvider({
-  root, provider, config, base, prompt, env, fallow, changedPaths, collect = collectHeadless,
-  subject, autonomy = 'reviewer',
+  root,
+  provider,
+  config,
+  base,
+  prompt,
+  env,
+  fallow,
+  changedPaths,
+  collect = collectHeadless,
+  subject,
+  autonomy = 'reviewer',
+  round,
+  origemCommit = '',
 }) {
   if (!PROVIDERS.includes(provider)) {
     return { accepted: false, attempt: { provider, result: 'unknown-provider' } };
   }
+  const rodada = round ?? {
+    round_id: randomUUID(),
+    subject: subject ?? '',
+    base,
+    changed_files: changedPaths?.size ?? 0,
+    changed_lines: 0,
+  };
   const started = Date.now();
   const result = await collect({ root, provider, config, base, prompt, env });
   const durationMs = Date.now() - started;
   if (result.kind !== 'ok') {
-    await logAttempt(root, provider, result.kind, durationMs);
+    await logAttempt(
+      root,
+      provider,
+      result.kind,
+      durationMs,
+      '',
+      telemetryData(rodada, 'reviewer', provider, config),
+    );
     return { accepted: false, attempt: { provider, result: result.kind, durationMs } };
   }
 
@@ -610,11 +891,51 @@ export async function attemptProvider({
     scorecardFormError(scorecard, { reviewer: provider, base, subject }) ??
     (scorecard ? await inspectionError(scorecard, changedPaths ?? new Set(), root) : null);
   if (formError) {
-    await logAttempt(root, provider, 'invalid-output', durationMs, `reason=${formError.replaceAll(' ', '_')}`);
-    return { accepted: false, attempt: { provider, result: 'invalid-output', reason: formError, durationMs } };
+    await logAttempt(
+      root,
+      provider,
+      'invalid-output',
+      durationMs,
+      `reason=${formError.replaceAll(' ', '_')}`,
+      telemetryData(rodada, 'reviewer', provider, config, scorecard),
+    );
+    return {
+      accepted: false,
+      attempt: { provider, result: 'invalid-output', reason: formError, durationMs },
+    };
   }
 
-  const verdictError = scorecardError(scorecard, { reviewer: provider, base, subject });
+  // Política de severidade (LMS_SEVERITY_POLICY=1): P2 do reviewer com confianca >= 80
+  // nao derruba o score sozinho — entra na fila e, se a rodada era P2-ONLY, vira aceite.
+  // P0/P1 seguem bloqueando exatamente como antes.
+  let p2Queued = 0;
+  let scorecardVeredito = scorecard;
+  // Os contadores NÃO são a fonte da verdade (achado da rodada 91): a validação
+  // de forma não reconcilia `findings` com `p0/p1`, então um scorecard com
+  // `p0:0,p1:0` e um P0/P1 real na lista passaria — a fila levaria o P2, o
+  // contador zeraria e o bloqueante seria publicado como aceite. Conta e lista
+  // precisam CONCORDAR que não há bloqueante.
+  const bloqueanteNaLista = (achado) => {
+    const bruta = String(achado?.severity ?? '')
+      .trim()
+      .toUpperCase();
+    return bruta === 'P0' || bruta === 'P1';
+  };
+  if (
+    POLITICA_ATIVA(env) &&
+    Array.isArray(scorecard.findings) &&
+    scorecard.p0 === 0 &&
+    scorecard.p1 === 0 &&
+    !scorecard.findings.some(bloqueanteNaLista)
+  ) {
+    const p2s = scorecard.findings.filter(eP2Enfileiravel);
+    if (p2s.length > 0) {
+      p2Queued = await enfileirarP2(root, p2s, rodada, origemCommit);
+      scorecardVeredito = neutralizarP2(scorecard, p2s);
+    }
+  }
+
+  const verdictError = scorecardError(scorecardVeredito, { reviewer: provider, base, subject });
 
   // Reprovacao vai para o disco na hora: ela BLOQUEIA, entao persistir e seguro e
   // util. Aceite NAO: enquanto o contraditorio roda — minutos — um 5/5 gravado seria
@@ -622,22 +943,39 @@ export async function attemptProvider({
   // o contraditorio existe para impedir. Quem grava o aceite e o runFallback, depois
   // que a refutacao falha em derruba-lo.
   if (verdictError) {
-    await writeScorecard(root, scorecard);
-    await logAttempt(root, provider, 'rejected', durationMs, `reason=${verdictError.replaceAll(' ', '_')}`,
-      { subject, score: scorecard.score, autonomy: scorecard.autonomy });
+    await writeScorecard(root, scorecardVeredito);
+    await logAttempt(
+      root,
+      provider,
+      'rejected',
+      durationMs,
+      `reason=${verdictError.replaceAll(' ', '_')}`,
+      {
+        ...telemetryData(rodada, 'reviewer', provider, config, scorecard),
+        score: scorecard.score,
+        autonomy: scorecard.autonomy,
+      },
+    );
     return {
       accepted: false,
       rejected: true,
-      scorecard,
+      scorecard: scorecardVeredito,
       attempt: { provider, result: 'rejected', reason: verdictError, durationMs },
     };
   }
 
-  await logAttempt(root, provider, 'accepted', durationMs, `score=${scorecard.score}`,
-    { subject, score: scorecard.score, autonomy: scorecard.autonomy });
-  return { accepted: true, scorecard, attempt: { provider, result: 'accepted', durationMs } };
+  await logAttempt(root, provider, 'accepted', durationMs, `score=${scorecardVeredito.score}`, {
+    ...telemetryData(rodada, 'reviewer', provider, config, scorecardVeredito),
+    score: scorecardVeredito.score,
+    autonomy: scorecard.autonomy,
+  });
+  return {
+    accepted: true,
+    scorecard: scorecardVeredito,
+    p2Queued,
+    attempt: { provider, result: 'accepted', durationMs },
+  };
 }
-
 
 /**
  * Qual modelo escreveu o diff. O SKILL manda revisor ≠ autor, mas o runner nunca
@@ -654,7 +992,6 @@ export function authorProvider(env = process.env) {
   if (env.GROK_HOME || env.GROK_SESSION_ID) return 'grok';
   return '';
 }
-
 
 const LENSES = ['code-safety', 'code-structure', 'code-quality', 'code-efficiency'];
 
@@ -750,7 +1087,7 @@ export function refutePrompt(base, provider, changed, outputPath = '') {
  */
 export function applyRefutation(scorecard, refutation, contexto = {}) {
   const { changedPaths, root = process.cwd() } = contexto;
-  const proximo = JSON.parse(JSON.stringify(scorecard));
+  const proximo = structuredClone(scorecard);
   proximo.score = Math.min(proximo.score, 4);
   // Todos os achados da rodada entram no scorecard — o principal e os
   // extra_findings. Um defeito visto e nao registrado custava uma rodada
@@ -758,18 +1095,19 @@ export function applyRefutation(scorecard, refutation, contexto = {}) {
   // Cada extra passa pelo MESMO crivo do achado principal: obrigatorios,
   // confianca >= 80 e ancora path:linha num arquivo do diff — sem isso um
   // P0 alucinado em arquivo inexistente viraria achado oficial (achado LMS).
-  const extras = (Array.isArray(refutation.extra_findings) ? refutation.extra_findings : [])
-    .filter(
-      (extra) =>
-        camposAusentes(extra, REFUTACAO_OBRIGATORIOS).length === 0 &&
-        confiancaDe(extra) >= 80 &&
-        ancoradoNoDiff(extra, changedPaths, root),
-    );
+  const extras = (Array.isArray(refutation.extra_findings) ? refutation.extra_findings : []).filter(
+    (extra) =>
+      camposAusentes(extra, REFUTACAO_OBRIGATORIOS).length === 0 &&
+      confiancaDe(extra) >= 80 &&
+      ancoradoNoDiff(extra, changedPaths, root),
+  );
   for (const achado of [refutation, ...extras]) {
     const lens = LENSES.includes(achado.lens) ? achado.lens : 'code-quality';
     // Severidade REAL e normalizada: 'p2'/'low'/'P3' viravam P1 e inflavam o
     // agregado (achado do LMS) — desconhecido cai para P2, o peso conservador.
-    const bruta = String(achado.severity ?? '').trim().toUpperCase();
+    const bruta = String(achado.severity ?? '')
+      .trim()
+      .toUpperCase();
     const severity = ['P0', 'P1', 'P2'].includes(bruta) ? bruta : 'P2';
     const campo = severity.toLowerCase();
     proximo.lenses[lens][campo] += 1;
@@ -789,7 +1127,6 @@ export function applyRefutation(scorecard, refutation, contexto = {}) {
   }
   return proximo;
 }
-
 
 /**
  * Contraditório: um segundo provider e pago para DERRUBAR o 5/5.
@@ -884,7 +1221,9 @@ function resumoAchado(veredito) {
     veredito?.path,
     veredito?.title,
     veredito?.why,
-  ].filter(Boolean).join(' — ');
+  ]
+    .filter(Boolean)
+    .join(' — ');
 }
 
 /**
@@ -913,14 +1252,15 @@ function imprimirAchado(refutador, veredito, avisos, faltando, log = console.err
     if (String(extra?.fix ?? '').trim()) log(`lms:     fix: ${extra.fix}`);
   }
   if (faltando.length > 0) log(`lms:   payload incompleto — faltou: ${faltando.join(', ')}`);
-  if (avisos.length > 0) log(`lms:   aviso — sem campo secundario: ${avisos.join(', ')} (nao invalida o achado)`);
+  if (avisos.length > 0)
+    log(`lms:   aviso — sem campo secundario: ${avisos.join(', ')} (nao invalida o achado)`);
 }
 
 /**
  * Quem nao conseguiu nem rodar nesta rodada esta fora: insistir nele troca segunda
  * opiniao por outra falha. Quem devolveu lixo uma vez continua elegivel.
  */
-function escolherRefutador({ ordem, attempts, provider, autor }) {
+export function escolherRefutador({ ordem, attempts, provider, autor, env = process.env }) {
   const naoRodou = new Set(
     attempts
       .filter((tentativa) => ['timeout', 'exit', 'missing-cli', 'error'].includes(tentativa.result))
@@ -928,7 +1268,17 @@ function escolherRefutador({ ordem, attempts, provider, autor }) {
   );
   const elegivel = (outro) => outro !== provider && outro !== autor && !naoRodou.has(outro);
   const usados = new Set(attempts.map((tentativa) => tentativa.provider));
-  return ordem.find((outro) => elegivel(outro) && !usados.has(outro)) ?? ordem.find(elegivel);
+  const cruzado = ordem.find((outro) => elegivel(outro) && !usados.has(outro)) ?? ordem.find(elegivel);
+  if (cruzado) return cruzado;
+  // Exceção EXPLÍCITA (decisão do Master, 2026-08-27, sob apagão de cota dupla —
+  // grok no limite semanal e OpenAI na janela de 5h): o mesmo provedor pode
+  // refutar a si quando é o ÚNICO vivo E a env opta. Contexto novo ainda dá valor
+  // adversarial real (o prompt manda DERRUBAR), mas os pontos cegos correlacionam —
+  // por isso nunca é o padrão, e o desfecho fica carimbado `de=<provider>` no log,
+  // visível na auditoria. Sem a env, o aceite continua morrendo `sem-refutador`,
+  // que é o fail-closed correto.
+  if (env.LMS_REFUTADOR_MESMO_PROVIDER === '1' && !naoRodou.has(provider)) return provider;
+  return undefined;
 }
 
 /**
@@ -958,7 +1308,9 @@ function ancoradoNoDiff(veredito, changedPaths, root) {
   // `{path, why:"parece errado"}` vago derrubaria o gate sem nenhuma
   // evidencia de leitura (achado do LMS sobre a propria regra).
   if (!pathDoAchado || !Number.isInteger(linha) || linha < 1) return false;
-  const noDiff = changedPaths?.size ? changedPaths.has(pathDoAchado) : existsSync(join(root, pathDoAchado));
+  const noDiff = changedPaths?.size
+    ? changedPaths.has(pathDoAchado)
+    : existsSync(join(root, pathDoAchado));
   if (!noDiff) return false;
   try {
     const total = readFileSync(join(root, pathDoAchado), 'utf8').split('\n').length;
@@ -1027,7 +1379,134 @@ async function extrasComprovados(root, env, veredito) {
   return validos;
 }
 
-async function contestar({ root, config, env, collect, ordem, autor, provider, base, changed, outputPathFor, attempts, subject, scorecard, changedPaths }) {
+/** Política de severidade no CONTRADITÓRIO: P2 do refutador (principal ou extras
+ *  válidos) não derruba o aceite — enfileira. Basta um P0/P1 (conf ≥80) no
+ *  veredito inteiro para derrubar como hoje. Extraída de `contestar` (fallow:
+ *  ciclomática 24 → a função-mãe volta ao teto). */
+async function politicaDeSeveridadeDoContraditorio({
+  root,
+  env,
+  veredito,
+  derrubou,
+  desfecho,
+  round,
+  origemCommit,
+  provaDerrubada = false,
+}) {
+  if (!POLITICA_ATIVA(env) || !veredito) {
+    return { p2Queued: 0, derrubouEfetivo: derrubou, desfecho };
+  }
+  const extrasValidos = await extrasComprovados(root, env, veredito);
+  const todos = [veredito, ...extrasValidos];
+  // P2 mecanicamente DESMENTIDO não vira dívida (achado da rodada 91): quando a
+  // própria prova do achado o contradiz (`prova === 'derrubada'`), enfileirá-lo
+  // gravaria débito falso — e sem a prova, que a fila não guarda, ele pareceria
+  // legítimo depois.
+  const achadosP2 = provaDerrubada ? [] : todos.filter(eP2Enfileiravel);
+  // O contrato do bloqueante é o MESMO do refutador (achado da rodada 91):
+  // REFUTACAO_OBRIGATORIOS é severity+path+why — `title` é secundário. Exigir
+  // título aqui rebaixava um P1 legítimo sem título quando vinha acompanhado de
+  // um P2 completo: a política zerava `derrubou` e o 5/5 original ia ao ar.
+  const temBloqueante = todos.some((achado) => {
+    const bruta = String(achado?.severity ?? '')
+      .trim()
+      .toUpperCase();
+    if (bruta !== 'P0' && bruta !== 'P1') return false;
+    if (confiancaDe(achado) < 80) return false;
+    return camposAusentes(achado, REFUTACAO_OBRIGATORIOS).length === 0;
+  });
+  if (achadosP2.length === 0 || temBloqueante) {
+    return { p2Queued: 0, derrubouEfetivo: derrubou, desfecho };
+  }
+  const p2Queued = await enfileirarP2(root, achadosP2, round, origemCommit);
+  // Achado P2 registrado, nao derrubou: o desfecho 'refuted' (calculado antes
+  // da politica) diria ao aceite que o contraditorio derrubou — e liberaria
+  // uncontested. P2 julgado e arquivado e 'weak-refute': julgou, nao derrubou.
+  return {
+    p2Queued,
+    derrubouEfetivo: false,
+    desfecho: desfecho === 'refuted' ? 'weak-refute' : desfecho,
+  };
+}
+
+/** Piloto Pi em SOMBRA (KDT-136): roda ALÉM do refutador real quando LMS_PI_SHADOW=1.
+ *  O veredito da sombra NÃO decide nada — grava a própria linha no history.jsonl
+ *  (estágio 'refutador-sombra') para comparar providers antes de migrar. */
+async function rodarSombraDoRefutador({
+  collectShadow,
+  env,
+  root,
+  config,
+  base,
+  changed,
+  refutador,
+  round,
+  attempts,
+  changedPaths,
+}) {
+  if (!collectShadow || env.LMS_PI_SHADOW !== '1') return;
+  // Teto PRÓPRIO, curto (achado da rodada 91): a sombra herdava o timeout cheio
+  // de reviewer e ficava no caminho crítico da publicação — um piloto que não
+  // decide nada podia somar mais 15 min a TODA rodada bem-sucedida. Estourou o
+  // teto? A telemetria da sombra se perde; o desfecho real nunca espera por ela.
+  const tetoSombra = Number(env.LMS_PI_SHADOW_TIMEOUT_SEC ?? 180) * 1000;
+  const iniciouSombra = Date.now();
+  // O teto vai no CONFIG, não numa corrida de promessas (achado da rodada 92):
+  // `Promise.race` só para de esperar — o processo do Pi continuaria vivo com o
+  // timer de 15 min dele, segurando o runner até lá. Quem mata o filho é o
+  // runCommand, pelo timeoutMs que ele recebe.
+  const contraSombra = await collectShadow({
+    root,
+    provider: 'pi',
+    config: { ...config, timeoutMs: tetoSombra },
+    base,
+    prompt: refutePrompt(base, 'pi', changed, ''),
+    env,
+    parse: parseRefutation,
+  });
+  const durationSombra = Date.now() - iniciouSombra;
+  const vereditoSombra = contraSombra.kind === 'ok' ? contraSombra.candidate : null;
+  let resultadoSombra = contraSombra.kind;
+  if (vereditoSombra) {
+    // MESMO contrato do refutador real (achado da rodada 92): sem isto, um
+    // `{refuted:false}` seco — sem prova de leitura, sem campos — entrava no
+    // histórico como "segunda opinião que sustentou", e um payload malformado
+    // entrava como refutação. O piloto existe para COMPARAR providers; medir a
+    // sombra com régua mais frouxa que a do titular torna a comparação inútil.
+    const provaInvalidaSombra = await inspectionError(vereditoSombra, changedPaths ?? new Set(), root);
+    const faltandoSombra = camposAusentes(vereditoSombra, REFUTACAO_OBRIGATORIOS);
+    if (provaInvalidaSombra || faltandoSombra.length > 0) {
+      resultadoSombra = 'shadow-invalid-output';
+    } else {
+      resultadoSombra = vereditoSombra.refuted === true ? 'shadow-refuted' : 'shadow-upheld';
+    }
+  }
+  await logAttempt(root, 'pi', resultadoSombra, durationSombra, `de=${refutador} sombra`, {
+    ...telemetryData(round, 'refutador-sombra', 'pi', config, vereditoSombra),
+    modelo: env.LMS_PI_MODEL ?? 'gpt-5.6-sol',
+    sombraDe: refutador,
+  });
+  attempts.push({ provider: 'pi', result: resultadoSombra, durationMs: durationSombra });
+}
+
+async function contestar({
+  root,
+  config,
+  env,
+  collect,
+  ordem,
+  autor,
+  provider,
+  base,
+  changed,
+  outputPathFor,
+  attempts,
+  scorecard,
+  changedPaths,
+  round,
+  origemCommit = '',
+  collectShadow = null,
+}) {
   const refutador = escolherRefutador({ ordem, attempts, provider, autor });
 
   if (!refutador) {
@@ -1064,28 +1543,63 @@ async function contestar({ root, config, env, collect, ordem, autor, provider, b
   });
   // A ancora no diff supre a prova de leitura tambem na classificacao — senao o
   // mesmo achado que 'derrubou' aprovou morreria aqui como invalid-output.
-  const desfecho = prova === 'derrubada'
-    ? 'refutacao-nao-comprovada'
-    : classificarVeredito(contra.kind, veredito, provaInvalida && !ancorado, derrubou, faltando, temConteudo);
+  let desfecho =
+    prova === 'derrubada'
+      ? 'refutacao-nao-comprovada'
+      : classificarVeredito(
+          contra.kind,
+          veredito,
+          provaInvalida && !ancorado,
+          derrubou,
+          faltando,
+          temConteudo,
+        );
 
   if (desfecho === 'refuted' || desfecho === 'payload-incompleto') {
     imprimirAchado(refutador, veredito, avisos, faltando);
   }
 
+  const politica = await politicaDeSeveridadeDoContraditorio({
+    root,
+    env,
+    veredito,
+    derrubou,
+    desfecho,
+    round,
+    origemCommit,
+    provaDerrubada: prova === 'derrubada',
+  });
+  const { p2Queued, derrubouEfetivo } = politica;
+  desfecho = politica.desfecho;
+
   await logAttempt(root, refutador, desfecho, durationMs, `de=${provider}`, {
-    subject,
-    refuted: derrubou,
+    ...telemetryData(round, 'refutador', refutador, config, veredito),
+    refuted: derrubouEfetivo,
     contested: provider,
   });
   attempts.push({ provider: refutador, result: desfecho, durationMs });
 
-  if (!derrubou) {
+  await rodarSombraDoRefutador({
+    collectShadow,
+    env,
+    root,
+    config,
+    base,
+    changed,
+    refutador,
+    round,
+    attempts,
+    changedPaths,
+  });
+
+  if (!derrubouEfetivo) {
     return {
       derrubou: false,
       refutador,
       desfecho,
       faltando,
       achado: desfecho === 'payload-incompleto' ? resumoAchado(veredito) : undefined,
+      p2Queued,
     };
   }
 
@@ -1095,13 +1609,24 @@ async function contestar({ root, config, env, collect, ordem, autor, provider, b
     root,
     applyRefutation(
       scorecard,
-      { ...veredito, extra_findings: await extrasComprovados(root, env, veredito), refutedBy: refutador },
+      {
+        ...veredito,
+        extra_findings: await extrasComprovados(root, env, veredito),
+        refutedBy: refutador,
+      },
       { changedPaths, root },
     ),
   );
-  return { derrubou: true, refutador, titulo: resumoAchado(veredito) || 'defeito encontrado' };
+  return {
+    derrubou: true,
+    refutador,
+    titulo: resumoAchado(veredito) || 'defeito encontrado',
+    p2Queued,
+    // Quantos defeitos ESTA refutação trouxe — é o número que mede o plateau da
+    // campanha quando quem derruba é o contraditório (rodada 92).
+    totalAchados: 1 + (await extrasComprovados(root, env, veredito)).length,
+  };
 }
-
 
 /**
  * Tres desfechos sem segunda opiniao, tres reacoes — e a mensagem diz qual (KDT-94):
@@ -1127,12 +1652,27 @@ function motivoSemSegundaOpiniao(provider, { desfecho, refutador, faltando = [],
  * Vive fora do laco porque inline ele estourou o limite de complexidade do fallow —
  * gate que engorda o codigo que ele mede e autofagia.
  */
+// Desfecho de um aceite: ele so publica se o contraditorio TIVER JULGADO.
+//
+// Vive fora do laco porque inline ele estourou o limite de complexidade do fallow —
+// gate que engorda o codigo que ele mede e autofagia.
 async function resolverAceite({ root, env, provider, attempt, attempts, contraditorio }) {
   if (contraditorio.derrubou) {
+    // Rodada derrubada pelo CONTRADITÓRIO também é rodada semântica (achado da
+    // rodada 91): contava só a reprovação do revisor primário, então campanhas
+    // decididas pelo refutador nunca chegavam ao plateau/teto e a escalada
+    // prometida ao Master nunca disparava.
+    const escalada = await avaliarCampanhaAposRejeicao({
+      root,
+      env,
+      attempt,
+      totalAchados: contraditorio.totalAchados ?? 1,
+    });
     return {
       ok: false,
       rejectedBy: contraditorio.refutador,
       reason: `contraditorio derrubou o 5/5 de ${provider}: ${contraditorio.titulo}`,
+      ...(escalada ? { escalated: true, escalationReason: escalada } : {}),
       attempts,
     };
   }
@@ -1140,7 +1680,9 @@ async function resolverAceite({ root, env, provider, attempt, attempts, contradi
   // "Olhou e nao derrubou" libera. "Nao consegui olhar" — timeout, CLI ausente,
   // veredito malformado, ninguem elegivel — nao e concordancia: e ausencia de segunda
   // opiniao, e sem ela nao se publica. Mesmo principio que vale para o fallow.
-  const julgou = ['upheld', 'weak-refute', 'refutacao-nao-comprovada'].includes(contraditorio.desfecho);
+  const julgou = ['upheld', 'weak-refute', 'refutacao-nao-comprovada'].includes(
+    contraditorio.desfecho,
+  );
   if (!julgou && env.LMS_ALLOW_UNCONTESTED !== '1') {
     return {
       ok: false,
@@ -1153,21 +1695,46 @@ async function resolverAceite({ root, env, provider, attempt, attempts, contradi
   // So agora o aceite vira arquivo: antes disto o gate leria um 5/5 sem contraditorio
   // e liberaria o push na janela em que ele ainda rodava.
   await writeScorecard(root, attempt.scorecard);
-  return { ok: true, acceptedBy: provider, contestedBy: contraditorio.refutador, attempts };
+  if (POLITICA_ATIVA(env)) await apagarCampanha(root);
+  const p2Queued = (attempt.p2Queued ?? 0) + (contraditorio.p2Queued ?? 0);
+  return {
+    ok: true,
+    acceptedBy: provider,
+    contestedBy: contraditorio.refutador,
+    attempts,
+    p2Queued,
+  };
 }
 
 export async function runFallback({
-  root = process.cwd(), base, env = process.env, collect = collectHeadless,
+  root = process.cwd(),
+  base,
+  env = process.env,
+  collect = collectHeadless,
+  collectShadow = null,
   // Coleta por arquivo (tmux) precisa dizer ao revisor ONDE gravar; a headless lê o
   // stdout e não tem destino. Uma função por provider mantém as duas no mesmo caminho.
   outputPathFor = () => '',
 } = {}) {
-  const resolvedBase = base ?? await resolveBase(root);
+  const resolvedBase = base ?? (await resolveBase(root));
   const config = providerConfig(env);
-  const { text: changed, paths: changedPaths } = await diffContext(root, resolvedBase);
+  const {
+    text: changed,
+    paths: changedPaths,
+    changedFiles,
+    changedLines,
+  } = await diffContext(root, resolvedBase);
   const fallow = await fallowVerdict(root);
   const subject = await reviewSubject(root, resolvedBase);
+  const round = {
+    round_id: randomUUID(),
+    subject,
+    base: resolvedBase,
+    changed_files: changedFiles,
+    changed_lines: changedLines,
+  };
   const attempts = [];
+  const origemCommit = POLITICA_ATIVA(env) ? await commitDeOrigem(root) : '';
 
   // Autor fora da cadeia. Se sobrar ninguém, revisa mesmo assim — mas o scorecard
   // sai marcado `self`, que é a categoria fraca e aparece em voz alta no gate, em
@@ -1177,7 +1744,9 @@ export async function runFallback({
   const ordem = independentes.length > 0 ? independentes : config.order;
   const autonomy = independentes.length > 0 ? 'reviewer' : 'self';
   if (autonomy === 'self') {
-    console.error(`lms: nenhum revisor independente de "${autor}" disponivel — scorecard sai como self`);
+    console.error(
+      `lms: nenhum revisor independente de "${autor}" disponivel — scorecard sai como self`,
+    );
   }
 
   for (const provider of ordem) {
@@ -1185,14 +1754,39 @@ export async function runFallback({
     // então o prompt tem de dizer qual string usar.
     const prompt = reviewPrompt(resolvedBase, provider, changed, outputPathFor(provider));
     const attempt = await attemptProvider({
-      root, provider, config, base: resolvedBase, prompt, env, fallow, changedPaths, collect,
-      subject, autonomy,
+      root,
+      provider,
+      config,
+      base: resolvedBase,
+      prompt,
+      env,
+      fallow,
+      changedPaths,
+      collect,
+      subject,
+      autonomy,
+      round,
+      origemCommit,
     });
     attempts.push(attempt.attempt);
     if (attempt.accepted) {
       const contraditorio = await contestar({
-        root, config, env, collect, ordem, autor, provider, base: resolvedBase,
-        changed, outputPathFor, attempts, subject, scorecard: attempt.scorecard, changedPaths,
+        root,
+        config,
+        env,
+        collect,
+        ordem,
+        autor,
+        provider,
+        base: resolvedBase,
+        changed,
+        outputPathFor,
+        attempts,
+        scorecard: attempt.scorecard,
+        changedPaths,
+        round,
+        origemCommit,
+        collectShadow,
       });
       return resolverAceite({ root, env, provider, attempt, attempts, contraditorio });
     }
@@ -1200,12 +1794,43 @@ export async function runFallback({
     // Reprovação é veredito, não falha: encerra a cadeia. Continuar seria
     // "shopping" por um reviewer que aprove.
     if (attempt.rejected) {
+      const escalada = await avaliarCampanhaAposRejeicao({ root, env, attempt });
+      if (escalada) {
+        return { ok: false, rejectedBy: provider, escalated: true, reason: escalada, attempts };
+      }
       return { ok: false, rejectedBy: provider, reason: attempt.attempt.reason, attempts };
     }
   }
   return { ok: false, acceptedBy: null, attempts };
 }
 
+/** Convergência por severidade (KDT-136): só rodada SEMÂNTICA conta para
+ *  plateau/teto — falha técnica de provider nunca chega aqui (só rejected).
+ *  Teto NUNCA libera P0/P1 pendente: escalonamento é para o Master, não passe.
+ *  Devolve o motivo da escalada, ou null para reprovar normalmente. Extraída de
+ *  `runFallback` (fallow: ciclomática 15 → a função-mãe volta ao teto). */
+async function avaliarCampanhaAposRejeicao({ root, env, attempt, totalAchados = null }) {
+  if (!POLITICA_ATIVA(env)) return null;
+  const estado = await campanha(root);
+  estado.semanticRounds += 1;
+  // `totalAchados` explícito para a rodada derrubada pelo CONTRADITÓRIO (achado
+  // da rodada 92): ali o `attempt` é o do revisor ACEITO, cujos contadores são
+  // zero — medir o plateau por eles registrava 0 em toda rodada do refutador e
+  // escalava na terceira, mesmo com os achados dele diminuindo de verdade.
+  const total =
+    totalAchados ?? attempt.scorecard.p0 + attempt.scorecard.p1 + attempt.scorecard.p2;
+  estado.stalled = estado.lastCount !== null && total >= estado.lastCount ? estado.stalled + 1 : 0;
+  estado.lastCount = total;
+  await salvarCampanha(root, estado);
+  let motivo = null;
+  if (estado.semanticRounds >= 4) {
+    motivo = 'teto de 4 rodadas semânticas — ESCALAR AO MASTER (teto nunca libera P0/P1 pendente)';
+  } else if (estado.stalled >= 2) {
+    motivo = 'plateau de 2 rodadas sem melhora — ESCALAR AO MASTER (teto nunca libera P0/P1 pendente)';
+  }
+  if (motivo) console.error(`lms: ${motivo}`);
+  return motivo;
+}
 
 /**
  * Traduz o desfecho da cadeia para quem le no terminal. Compartilhado pelos dois
@@ -1216,6 +1841,11 @@ export async function runFallback({
 export function reportarDesfecho(result, prefixo) {
   if (result.ok) {
     console.log(`${prefixo}: accepted by ${result.acceptedBy}`);
+    if (result.p2Queued > 0) {
+      console.log(
+        `${prefixo}: ${result.p2Queued} achado P${result.p2Queued > 1 ? '2s' : '2'} enfileirado${result.p2Queued > 1 ? 's' : ''} em .lms/p2-queue.jsonl`,
+      );
+    }
     return 0;
   }
   if (result.uncontested) {
@@ -1231,7 +1861,9 @@ export function reportarDesfecho(result, prefixo) {
   }
   console.error(`${prefixo}: nenhum revisor produziu scorecard valido`);
   for (const attempt of result.attempts ?? []) {
-    console.error(`  ${attempt.provider}: ${attempt.result}${attempt.reason ? ` — ${attempt.reason}` : ''}`);
+    console.error(
+      `  ${attempt.provider}: ${attempt.result}${attempt.reason ? ` — ${attempt.reason}` : ''}`,
+    );
   }
   return 1;
 }

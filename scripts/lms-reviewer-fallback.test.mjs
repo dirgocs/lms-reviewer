@@ -2,11 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { escreverArquivosCitados } from './lms-test-fixtures.mjs';
 import { join } from 'node:path';
 
 import {
   commandFor,
   providerConfig,
+  reportarDesfecho,
   runFallback,
 } from './lms-reviewer-fallback.mjs';
 
@@ -134,10 +136,87 @@ if (prompt.includes('DERRUBAR') && mode === 'refute-so-titulo') {
   process.exit(0);
 }
 // Modo do contraditorio: devolve o veredito de refutacao em vez de um scorecard.
-if (mode === 'refute') {
+if (prompt.includes('DERRUBAR') && mode === 'refute-p2-torto') {
+  // P2 com confianca NAO-NUMERICA e path sem linha: nao e debito rastreavel.
   console.log(JSON.stringify({
-    refuted: true, confidence: 95, severity: 'P1', lens: 'code-quality',
-    path: 'a.ts:1', title: 'defeito que o primeiro reviewer nao viu',
+    refuted: true, confidence: 'alto', severity: 'P2', lens: 'code-quality',
+    path: 'a.ts', title: 'debito sem ancora', why: 'sem linha e sem confianca',
+    inspected: provaDeLeitura,
+  }));
+  process.exit(0);
+}
+if (prompt.includes('DERRUBAR') && mode === 'refute-p2-prova-derrubada') {
+  // P2 completo cuja PROPRIA prova o contradiz (expect fail, comando sai 0).
+  console.log(JSON.stringify({
+    refuted: true, confidence: 95, severity: 'P2', lens: 'code-quality',
+    path: 'a.ts:1', title: 'debito que a prova desmente', why: 'alegacao automatica',
+    inspected: provaDeLeitura,
+    proof: { command: 'node scripts/prova.mjs', expect: 'fail' },
+  }));
+  process.exit(0);
+}
+if (mode === 'refute-p1-sem-titulo-com-p2') {
+  // P1 valido pelo contrato (severity+path+why) SEM titulo, junto de um P2
+  // completo: a politica nao pode rebaixar o P1.
+  console.log(JSON.stringify({
+    refuted: true, confidence: 99, severity: 'P1',
+    lens: 'code-safety', path: 'a.ts:1',
+    why: 'bloqueante sem titulo, contrato do refutador nao exige titulo',
+    inspected: provaDeLeitura,
+    extra_findings: [{
+      severity: 'P2', confidence: 90, lens: 'code-quality', path: 'b.ts:1',
+      title: 'p2 completo', why: 'debito acionavel', inspected: provaDeLeitura,
+    }],
+  }));
+  process.exit(0);
+}
+if (mode === 'review-p2-com-p1-na-lista') {
+  // Contadores MENTEM: p0/p1 zerados mas ha um P1 real em findings.
+  console.log(JSON.stringify({
+    score: 4, target: 5, p0: 0, p1: 0, p2: 1,
+    lenses: {
+      'code-safety': { p0: 0, p1: 0, p2: 0 },
+      'code-structure': { p0: 0, p1: 0, p2: 0 },
+      'code-quality': { p0: 0, p1: 0, p2: 1 },
+      'code-efficiency': { p0: 0, p1: 0, p2: 0 },
+    },
+    findings: [
+      { severity: 'P2', confidence: 90, lens: 'code-quality', path: 'a.ts:1',
+        title: 'debito', why: 'acionavel' },
+      { severity: 'P1', confidence: 95, lens: 'code-safety', path: 'b.ts:1',
+        title: 'bloqueante escondido', why: 'contador mente' },
+    ],
+    inspected: provaDeLeitura,
+  }));
+  process.exit(0);
+}
+if (mode === 'refute-p2-sem-why') {
+  // P2 sem justificativa: nao e acionavel, entao NAO enfileira — bloqueia.
+  console.log(JSON.stringify({
+    refuted: true, confidence: 95, severity: 'P2',
+    lens: 'code-quality', path: 'a.ts:1', title: 'sem justificativa',
+    inspected: provaDeLeitura,
+  }));
+  process.exit(0);
+}
+if (mode === 'refute-p2-extra-torto') {
+  // P2 principal VALIDO + extra P1 sem titulo nem path: o extra e descartado
+  // depois pelo applyRefutation, entao nao pode bloquear o enfileiramento.
+  console.log(JSON.stringify({
+    refuted: true, confidence: 95, severity: 'P2',
+    lens: 'code-quality', path: 'a.ts:1',
+    title: 'defeito que o primeiro reviewer nao viu',
+    why: 'contraditorio encontrou caso de borda ignorado',
+    inspected: provaDeLeitura,
+    extra_findings: [{ severity: 'P1', confidence: 90 }],
+  }));
+  process.exit(0);
+}
+if (mode === 'refute' || mode === 'refute-p2') {
+  console.log(JSON.stringify({
+    refuted: true, confidence: 95, severity: mode === 'refute-p2' ? 'P2' : 'P1',
+    lens: 'code-quality', path: 'a.ts:1',
+    title: 'defeito que o primeiro reviewer nao viu',
     why: 'contraditorio encontrou caso de borda ignorado',
     inspected: provaDeLeitura,
   }));
@@ -148,7 +227,8 @@ if (mode === 'invalid') {
   process.exit(0);
 }
 
-const score = mode === 'low' ? 4 : 5;
+const reviewSeverity = /^review-(p[012])$/.exec(mode)?.[1];
+const score = mode === 'low' || reviewSeverity ? 4 : 5;
 const inspected = mode === 'no-inspection'
   ? []
   : [
@@ -156,35 +236,43 @@ const inspected = mode === 'no-inspection'
       { path: 'b.ts', line: 1, quote: 'export const bravo = 2; // linha citada' },
       { path: 'c.ts', line: 1, quote: 'export const charlie = 3; // linha citada' },
     ];
-const zeroLens = { p0: 0, p1: 0, p2: 0 };
+const counts = { p0: 0, p1: 0, p2: 0 };
+if (reviewSeverity) counts[reviewSeverity] = 1;
+const lenses = {
+  'code-safety': { p0: 0, p1: 0, p2: 0 },
+  'code-structure': { p0: 0, p1: 0, p2: 0 },
+  'code-quality': { ...counts },
+  'code-efficiency': { p0: 0, p1: 0, p2: 0 },
+};
 console.log(JSON.stringify({
   reviewer: provider,
   score,
   target: 5,
   base: process.env.LMS_REVIEWER_BASE,
-  p0: 0,
-  p1: 0,
-  p2: 0,
-  lenses: {
-    'code-safety': zeroLens,
-    'code-structure': zeroLens,
-    'code-quality': zeroLens,
-    'code-efficiency': zeroLens,
-  },
+  ...counts,
+  lenses,
+  findings: reviewSeverity ? [{
+    severity: reviewSeverity.toUpperCase(), confidence: 95, lens: 'code-quality',
+    path: 'a.ts:1', title: 'achado de severidade controlada', why: 'exercita a politica',
+  }] : [],
   at: new Date().toISOString(),
   inspected,
 }));
 `;
 
+async function assertCadeiaCompleta(log) {
+  assert.deepEqual((await readFile(log, 'utf8')).trim().split('\n'), ['claude', 'grok', 'codex']);
+}
+
+async function assertUltimoResultado(root, esperado) {
+  assert.equal((await historico(root)).at(-1).result, esperado);
+}
+
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'lms-fallback-'));
   const bin = join(root, 'fake-provider.mjs');
   const log = join(root, 'calls.log');
-  // A prova de leitura e conferida contra o disco, entao os arquivos citados pelo
-  // fake precisam existir de verdade.
-  await writeFile(join(root, 'a.ts'), 'export const alpha = 1; // linha citada\n', 'utf8');
-  await writeFile(join(root, 'b.ts'), 'export const bravo = 2; // linha citada\n', 'utf8');
-  await writeFile(join(root, 'c.ts'), 'export const charlie = 3; // linha citada\n', 'utf8');
+  await escreverArquivosCitados(root);
   // Script que a "prova" da refutacao executa. O exit vem do ambiente, entao o teste
   // decide se a alegacao se sustenta ou se desmente sozinha.
   await mkdir(join(root, 'scripts'), { recursive: true });
@@ -206,6 +294,45 @@ async function fixture() {
   return { root, env, log };
 }
 
+const provaDeLeituraFixture = [
+  { path: 'a.ts', line: 1, quote: 'export const alpha = 1; // linha citada' },
+  { path: 'b.ts', line: 1, quote: 'export const bravo = 2; // linha citada' },
+  { path: 'c.ts', line: 1, quote: 'export const charlie = 3; // linha citada' },
+];
+
+function scorecardComAchados(severity, count) {
+  const campo = severity.toLowerCase();
+  const counts = { p0: 0, p1: 0, p2: 0, [campo]: count };
+  return {
+    score: 4,
+    target: 5,
+    ...counts,
+    lenses: {
+      'code-safety': { p0: 0, p1: 0, p2: 0 },
+      'code-structure': { p0: 0, p1: 0, p2: 0 },
+      'code-quality': { ...counts },
+      'code-efficiency': { p0: 0, p1: 0, p2: 0 },
+    },
+    findings: Array.from({ length: count }, (_, index) => ({
+      severity,
+      confidence: 95,
+      lens: 'code-quality',
+      path: `a.ts:${index + 1}`,
+      title: `${severity} ${index + 1}`,
+      why: 'achado semantico',
+    })),
+    inspected: provaDeLeituraFixture,
+  };
+}
+
+async function jsonl(root, arquivo) {
+  const bruto = await readFile(join(root, '.lms', arquivo), 'utf8');
+  return bruto
+    .trim()
+    .split('\n')
+    .map((linha) => JSON.parse(linha));
+}
+
 test('builds exact High commands for all providers', () => {
   const config = providerConfig({
     LMS_CLAUDE_MODEL: 'claude-opus-4-8',
@@ -214,17 +341,39 @@ test('builds exact High commands for all providers', () => {
   });
 
   assert.deepEqual(commandFor('claude', { ...config, base, prompt: 'review' }).args, [
-    '--model', 'claude-opus-4-8', '--effort', 'high',
-    '--print', '--output-format', 'json', '--no-session-persistence',
-    '--permission-mode', 'plan', '--tools', 'Read,Grep,Glob',
+    '--model',
+    'claude-opus-4-8',
+    '--effort',
+    'high',
+    '--print',
+    '--output-format',
+    'json',
+    '--no-session-persistence',
+    '--permission-mode',
+    'plan',
+    '--tools',
+    'Read,Grep,Glob',
   ]);
   assert.deepEqual(commandFor('grok', { ...config, base, prompt: 'review' }).args, [
-    '--model', 'grok-4.6', '--reasoning-effort', 'medium', '--single', 'review',
-    '--output-format', 'json', '--permission-mode', 'plan', '--tools', 'Read,Grep,Glob',
+    '--model',
+    'grok-4.6',
+    '--reasoning-effort',
+    'medium',
+    '--single',
+    'review',
+    '--output-format',
+    'json',
+    '--permission-mode',
+    'plan',
+    '--tools',
+    'Read,Grep,Glob',
   ]);
   const codex = commandFor('codex', { ...config, base, prompt: 'review' });
   assert.equal(codex.args.includes('gpt-5.6-sol'), true);
-  assert.equal(codex.args.includes('model_reasoning_effort="high"'), true);
+  // `xhigh` é o piso do revisor codex, e o padrão vem do código, não do ambiente:
+  // um deploy que esquecesse `LMS_CODEX_EFFORT` não pode rebaixar a revisão em
+  // silêncio.
+  assert.equal(codex.args.includes('model_reasoning_effort="xhigh"'), true);
   assert.equal(codex.args.includes('-'), false);
 });
 
@@ -241,7 +390,7 @@ test('falls back from Claude failure to Grok and stops on accepted 5/5', async (
     // devolve scorecard (sem `refuted`), entao o aceite se mantem — mas o codex e
     // chamado, e e isso que distingue aceite contestado de aceite sozinho.
     assert.equal(result.contestedBy, 'codex');
-    assert.deepEqual((await readFile(log, 'utf8')).trim().split('\n'), ['claude', 'grok', 'codex']);
+    await assertCadeiaCompleta(log);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -281,7 +430,12 @@ test('a review that opened no files is discarded as invalid output', async () =>
     const result = await runFallback({
       root,
       base,
-      env: { ...env, FAKE_CLAUDE_MODE: 'no-inspection', FAKE_GROK_MODE: 'no-inspection', FAKE_CODEX_MODE: 'no-inspection' },
+      env: {
+        ...env,
+        FAKE_CLAUDE_MODE: 'no-inspection',
+        FAKE_GROK_MODE: 'no-inspection',
+        FAKE_CODEX_MODE: 'no-inspection',
+      },
     });
     assert.equal(result.ok, false);
     assert.equal(result.rejectedBy, undefined);
@@ -289,7 +443,7 @@ test('a review that opened no files is discarded as invalid output', async () =>
       result.attempts.map((attempt) => attempt.result),
       ['invalid-output', 'invalid-output', 'invalid-output'],
     );
-    assert.deepEqual((await readFile(log, 'utf8')).trim().split('\n'), ['claude', 'grok', 'codex']);
+    await assertCadeiaCompleta(log);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -399,7 +553,8 @@ test('inspection floor adapts to the diff size and paths must belong to it', asy
 
     // Mesmo arquivo repetido nao vira tres.
     assert.match(
-      (await inspectionError({ inspected: [three[0], three[0], three[0]] }, threeFiles, root)) ?? '',
+      (await inspectionError({ inspected: [three[0], three[0], three[0]] }, threeFiles, root)) ??
+        '',
       /at least 3 distinct/,
     );
 
@@ -408,7 +563,13 @@ test('inspection floor adapts to the diff size and paths must belong to it', asy
     // ser permitido — o que nao pode e usar isso para cobrir menos do diff.
     assert.match(
       (await inspectionError(
-        { inspected: [three[0], three[1], { path: 'gone.ts', line: 1, quote: 'qualquer coisa longa' }] },
+        {
+          inspected: [
+            three[0],
+            three[1],
+            { path: 'gone.ts', line: 1, quote: 'qualquer coisa longa' },
+          ],
+        },
         threeFiles,
         root,
       )) ?? '',
@@ -419,12 +580,446 @@ test('inspection floor adapts to the diff size and paths must belong to it', asy
   }
 });
 
-
-/** Le `.lms/history.jsonl` — os dois testes do contraditorio precisam do mesmo. */
+/** Le `.lms/history.jsonl` — os testes do contraditorio precisam do mesmo. */
 async function historico(root) {
-  const bruto = await readFile(join(root, '.lms', 'history.jsonl'), 'utf8');
-  return bruto.trim().split('\n').map((linha) => JSON.parse(linha));
+  return jsonl(root, 'history.jsonl');
 }
+
+test('cada invocacao registra telemetria completa dos dois estagios', async () => {
+  const { root, env } = await fixture();
+  try {
+    await runFallback({ root, base, env });
+    const [revisor, refutador] = await historico(root);
+    const campos = [
+      'round_id',
+      'subject',
+      'base',
+      'estagio',
+      'provider',
+      'modelo',
+      'changed_files',
+      'changed_lines',
+      'p0',
+      'p1',
+      'p2',
+      'findings_count',
+      'resultado',
+      'duration_ms',
+      'at',
+    ];
+
+    for (const linha of [revisor, refutador]) {
+      assert.deepEqual(
+        campos.every((campo) => Object.hasOwn(linha, campo)),
+        true,
+      );
+      assert.equal(linha.base, base);
+      assert.equal(linha.changed_files, 0);
+      assert.equal(linha.changed_lines, 0);
+      assert.equal(linha.findings_count, 0);
+    }
+    assert.equal(revisor.estagio, 'reviewer');
+    assert.equal(revisor.resultado, 'accepted');
+    assert.equal(revisor.modelo, 'claude-opus-4-8');
+    assert.equal(refutador.estagio, 'refutador');
+    assert.equal(refutador.resultado, 'upheld');
+    assert.equal(refutador.modelo, 'grok-4.6');
+    assert.equal(refutador.round_id, revisor.round_id);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('sem flag P2 continua bloqueando e nenhuma fila nasce', async () => {
+  const { root, env } = await fixture();
+  try {
+    const result = await runFallback({
+      root,
+      base,
+      env: { ...env, FAKE_CLAUDE_MODE: 'review-p2' },
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.rejectedBy, 'claude');
+    await assert.rejects(readFile(join(root, '.lms', 'p2-queue.jsonl'), 'utf8'), /ENOENT/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('com flag P2 do reviewer entra na fila e a rodada aceita', async () => {
+  const { root, env } = await fixture();
+  const saida = [];
+  const logOriginal = console.log;
+  try {
+    const result = await runFallback({
+      root,
+      base,
+      env: { ...env, LMS_SEVERITY_POLICY: '1', FAKE_CLAUDE_MODE: 'review-p2' },
+    });
+    console.log = (...args) => saida.push(args.join(' '));
+    assert.equal(reportarDesfecho(result, 'lms-teste'), 0);
+    assert.equal(result.ok, true);
+    assert.equal(result.p2Queued, 1);
+    assert.match(saida.join('\n'), /1 achado P2 enfileirado/);
+
+    const [queued] = await jsonl(root, 'p2-queue.jsonl');
+    assert.deepEqual(
+      Object.keys(queued).sort(),
+      // `why` e `fix` entraram na rodada 90: a fila e a UNICA memoria do debito
+      // depois que o achado sai do scorecard, entao a justificativa vai junto.
+      ['commit', 'confidence', 'fix', 'lens', 'path', 'round_id', 'title', 'why'].sort(),
+    );
+    assert.equal(queued.path, 'a.ts:1');
+    assert.equal(queued.title, 'achado de severidade controlada');
+    assert.equal(queued.lens, 'code-quality');
+    assert.equal(queued.confidence, 95);
+    assert.equal(typeof queued.round_id, 'string');
+  } finally {
+    console.log = logOriginal;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('com flag P0 e P1 continuam bloqueando', async () => {
+  for (const severity of ['p0', 'p1']) {
+    const { root, env } = await fixture();
+    try {
+      const result = await runFallback({
+        root,
+        base,
+        env: { ...env, LMS_SEVERITY_POLICY: '1', FAKE_CLAUDE_MODE: `review-${severity}` },
+      });
+      assert.equal(result.ok, false, `${severity} nao pode liberar`);
+      assert.equal(result.rejectedBy, 'claude');
+      const gravado = JSON.parse(await readFile(join(root, '.lms', 'last.json'), 'utf8'));
+      assert.equal(gravado[severity], 1);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test('P2 encontrado pelo refutador tambem enfileira sem derrubar o aceite', async () => {
+  const { root, env } = await fixture();
+  try {
+    const result = await runFallback({
+      root,
+      base,
+      env: { ...env, LMS_SEVERITY_POLICY: '1', FAKE_GROK_MODE: 'refute-p2' },
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.contestedBy, 'grok');
+    assert.equal(result.p2Queued, 1);
+    const [queued] = await jsonl(root, 'p2-queue.jsonl');
+    assert.equal(queued.path, 'a.ts:1');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('extra P1 malformado nao impede o enfileiramento do P2 valido', async () => {
+  // Rodada 89: `extrasComprovados` so descarta prova desmentida, nao exige campos.
+  // Um extra com apenas `severity: P1` fazia o P2 legitimo bloquear — e o proprio
+  // applyRefutation descartava o extra depois. So achado COMPLETO bloqueia.
+  const { root, env } = await fixture();
+  try {
+    const result = await runFallback({
+      root,
+      base,
+      env: { ...env, LMS_SEVERITY_POLICY: '1', FAKE_GROK_MODE: 'refute-p2-extra-torto' },
+    });
+    assert.equal(result.ok, true, 'P2 com extra torto nao pode derrubar o aceite');
+    assert.equal(result.p2Queued, 1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('P2 sem justificativa nao enfileira — bloqueia como achado normal', async () => {
+  // Rodada 90: a validacao de forma do scorecard nao olha o conteudo dos
+  // findings; um P2 vazio virava aceite 5/5 com linha inutil na fila.
+  const { root, env } = await fixture();
+  try {
+    const result = await runFallback({
+      root,
+      base,
+      env: { ...env, LMS_SEVERITY_POLICY: '1', FAKE_GROK_MODE: 'refute-p2-sem-why' },
+    });
+    assert.equal(result.ok, false, 'P2 sem why tem de bloquear, nao virar aceite');
+    await assert.rejects(readFile(join(root, '.lms', 'p2-queue.jsonl'), 'utf8'), /ENOENT/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('a fila P2 guarda a justificativa e a correcao sugerida', async () => {
+  // Rodada 90: o achado sai do scorecard ao virar aceite, entao a fila e a UNICA
+  // memoria do debito — sem why/fix ninguem sabe depois por que aquilo e defeito.
+  const { root, env } = await fixture();
+  try {
+    await runFallback({
+      root,
+      base,
+      env: { ...env, LMS_SEVERITY_POLICY: '1', FAKE_GROK_MODE: 'refute-p2' },
+    });
+    const [queued] = await jsonl(root, 'p2-queue.jsonl');
+    assert.equal(queued.why, 'contraditorio encontrou caso de borda ignorado');
+    assert.ok('fix' in queued, 'o campo fix acompanha o debito');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('P1 sem titulo nao e rebaixado por um P2 que o acompanha', async () => {
+  // Rodada 91: o contrato do refutador (REFUTACAO_OBRIGATORIOS) nao exige title;
+  // exigi-lo em temBloqueante deixava a politica zerar um P1 legitimo.
+  const { root, env } = await fixture();
+  try {
+    const result = await runFallback({
+      root,
+      base,
+      env: { ...env, LMS_SEVERITY_POLICY: '1', FAKE_GROK_MODE: 'refute-p1-sem-titulo-com-p2' },
+    });
+    assert.equal(result.ok, false, 'o P1 tem de derrubar o aceite');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('contador que mente nao publica P1 escondido em findings', async () => {
+  // Rodada 91: a validacao de forma nao reconcilia findings com p0/p1, entao um
+  // scorecard com p1:0 e um P1 na lista virava aceite pela via da fila P2.
+  const { root, env } = await fixture();
+  try {
+    const result = await runFallback({
+      root,
+      base,
+      env: { ...env, LMS_SEVERITY_POLICY: '1', FAKE_CLAUDE_MODE: 'review-p2-com-p1-na-lista' },
+    });
+    assert.equal(result.ok, false, 'P1 na lista bloqueia mesmo com contador zerado');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('o scorecard aceito nao lista os P2 que foram para a fila', async () => {
+  // Rodada 91: structuredClone cria objetos novos, entao o filtro por referencia
+  // nunca casava — o last.json saia score 5 / p2 0 AINDA listando os P2.
+  const { root, env } = await fixture();
+  try {
+    const result = await runFallback({
+      root,
+      base,
+      env: { ...env, LMS_SEVERITY_POLICY: '1', FAKE_CLAUDE_MODE: 'review-p2' },
+    });
+    assert.equal(result.ok, true);
+    const gravado = JSON.parse(await readFile(join(root, '.lms', 'last.json'), 'utf8'));
+    assert.equal(gravado.p2, 0);
+    assert.deepEqual(gravado.findings, [], 'o P2 enfileirado sai da lista');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('P2 desmentido pela propria prova nao vira debito na fila', async () => {
+  // Rodada 91: a politica escolhia o achado principal sem exigir que ele tivesse
+  // sobrevivido a prova; um P2 mecanicamente derrubado entrava na fila como
+  // debito legitimo, e sem a prova ninguem saberia depois que era falso.
+  const { root, env } = await fixture();
+  try {
+    const result = await runFallback({
+      root,
+      base,
+      env: {
+        ...env,
+        LMS_SEVERITY_POLICY: '1',
+        FAKE_GROK_MODE: 'refute-p2-prova-derrubada',
+        FAKE_PROVA_EXIT: '0', // o comando PASSA, mas o achado esperava falha
+      },
+    });
+    assert.equal(result.p2Queued ?? 0, 0, 'achado desmentido nao enfileira');
+    await assert.rejects(readFile(join(root, '.lms', 'p2-queue.jsonl'), 'utf8'), /ENOENT/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('rodada derrubada pelo contraditorio conta na campanha semantica', async () => {
+  // Rodada 91: so a reprovacao do revisor primario incrementava semanticRounds,
+  // entao campanhas decididas pelo refutador nunca chegavam ao teto/plateau.
+  const { root, env } = await fixture();
+  try {
+    const result = await runFallback({
+      root,
+      base,
+      env: { ...env, LMS_SEVERITY_POLICY: '1', FAKE_GROK_MODE: 'refute' },
+    });
+    assert.equal(result.ok, false);
+    const campanha = JSON.parse(
+      await readFile(join(root, '.lms', 'severity-campaign.json'), 'utf8'),
+    );
+    assert.equal(campanha.semanticRounds, 1, 'a rodada do refutador contou');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('a sombra roda com teto proprio, que MATA o processo dela', async () => {
+  // Rodada 91: a sombra herdava o timeout de reviewer e ficava no caminho
+  // critico. Rodada 92: Promise.race so parava de ESPERAR — o processo do Pi
+  // seguia vivo com o timer de 15 min e segurava o runner do mesmo jeito. O
+  // teto tem de chegar ao runCommand, que e quem mata o filho.
+  const { root, env } = await fixture();
+  try {
+    const tetos = [];
+    const collectShadow = async ({ config }) => {
+      tetos.push(config.timeoutMs);
+      return { kind: 'timeout' };
+    };
+    const result = await runFallback({
+      root,
+      base,
+      env: { ...env, LMS_PI_SHADOW: '1', LMS_PI_SHADOW_TIMEOUT_SEC: '7' },
+      collectShadow,
+    });
+    assert.equal(result.ok, true, 'a sombra nao decide nada');
+    assert.deepEqual(tetos, [7000], 'o teto da sombra vai no config, nao numa corrida');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('P2 com confianca invalida ou path sem linha nao entra na fila', async () => {
+  // Rodada 92: Number('alto') e NaN e NaN < 80 e false — a checagem antiga
+  // deixava passar; sem arquivo:linha a divida nao e rastreavel ate o defeito.
+  const { root, env } = await fixture();
+  try {
+    const result = await runFallback({
+      root,
+      base,
+      env: { ...env, LMS_SEVERITY_POLICY: '1', FAKE_GROK_MODE: 'refute-p2-torto' },
+    });
+    assert.equal(result.p2Queued ?? 0, 0, 'achado torto nao vira debito');
+    await assert.rejects(readFile(join(root, '.lms', 'p2-queue.jsonl'), 'utf8'), /ENOENT/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('a campanha mede os achados do refutador, nao os zeros do aceite', async () => {
+  // Rodada 92: o attempt passado e o do revisor ACEITO (contadores zerados);
+  // medir o plateau por ele registrava 0 em toda rodada do contraditorio.
+  const { root, env } = await fixture();
+  try {
+    await runFallback({
+      root,
+      base,
+      env: { ...env, LMS_SEVERITY_POLICY: '1', FAKE_GROK_MODE: 'refute-com-extras' },
+    });
+    const campanha = JSON.parse(
+      await readFile(join(root, '.lms', 'severity-campaign.json'), 'utf8'),
+    );
+    assert.ok(campanha.lastCount > 0, `lastCount deveria contar os achados, veio ${campanha.lastCount}`);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('a sombra sem prova de leitura nao vira segunda opiniao no historico', async () => {
+  // Rodada 92: o rotulo saia so de candidate.refuted — um {refuted:false} seco
+  // entrava como 'sustentou' e um payload torto como 'refutou', tornando o
+  // piloto incomparavel com o refutador real, que passa por todas as validacoes.
+  const { root, env } = await fixture();
+  try {
+    const collectShadow = async () => ({
+      kind: 'ok',
+      candidate: { refuted: false, confidence: 0 }, // sem inspected, sem campos
+    });
+    await runFallback({
+      root,
+      base,
+      env: { ...env, LMS_PI_SHADOW: '1' },
+      collectShadow,
+    });
+    const linhas = await historico(root);
+    const sombra = linhas.filter((linha) => linha.estagio === 'refutador-sombra');
+    assert.equal(sombra.length, 1);
+    assert.equal(sombra[0].resultado, 'shadow-invalid-output');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('falha tecnica de provider nao conta como rodada semantica', async () => {
+  const { root, env } = await fixture();
+  try {
+    const result = await runFallback({
+      root,
+      base,
+      env: {
+        ...env,
+        LMS_SEVERITY_POLICY: '1',
+        FAKE_CLAUDE_MODE: 'exit',
+        FAKE_GROK_MODE: 'exit',
+        FAKE_CODEX_MODE: 'exit',
+      },
+    });
+    assert.equal(result.ok, false);
+    await assert.rejects(readFile(join(root, '.lms', 'severity-campaign.json'), 'utf8'), /ENOENT/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('plateau para apos duas rodadas sem melhora e manda escalar', async () => {
+  const { root, env } = await fixture();
+  try {
+    const collect = async () => ({ kind: 'ok', candidate: scorecardComAchados('P1', 2) });
+    const resultados = [];
+    for (let rodada = 0; rodada < 3; rodada += 1) {
+      resultados.push(
+        await runFallback({
+          root,
+          base,
+          env: { ...env, LMS_SEVERITY_POLICY: '1' },
+          collect,
+        }),
+      );
+    }
+    assert.equal(resultados[1].escalated, undefined);
+    assert.equal(resultados[2].escalated, true);
+    assert.match(resultados[2].reason, /plateau.*Master/i);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('teto de quatro rodadas escala sem liberar P1 pendente', async () => {
+  const { root, env } = await fixture();
+  try {
+    const contagens = [4, 3, 2, 1];
+    const resultados = [];
+    for (const count of contagens) {
+      const collect = async () => ({ kind: 'ok', candidate: scorecardComAchados('P1', count) });
+      resultados.push(
+        await runFallback({
+          root,
+          base,
+          env: { ...env, LMS_SEVERITY_POLICY: '1' },
+          collect,
+        }),
+      );
+    }
+    const teto = resultados.at(-1);
+    assert.equal(teto.ok, false);
+    assert.equal(teto.escalated, true);
+    assert.match(teto.reason, /teto de 4.*Master/i);
+    const gravado = JSON.parse(await readFile(join(root, '.lms', 'last.json'), 'utf8'));
+    assert.equal(gravado.p1, 1, 'teto nao apaga P1 nem autoriza publicacao');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test('o contraditorio derruba um 5/5 e o scorecard gravado passa a bloquear', async () => {
   const { root, env } = await fixture();
@@ -449,7 +1044,10 @@ test('o contraditorio derruba um 5/5 e o scorecard gravado passa a bloquear', as
     assert.equal(gravado.findings.at(-1).refutedBy, 'codex');
 
     // E o historico registra o desfecho, que e o sinal para ver reviewer complacente.
-    assert.equal((await historico(root)).some((linha) => linha.result === 'refuted'), true);
+    assert.equal(
+      (await historico(root)).some((linha) => linha.result === 'refuted'),
+      true,
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -468,7 +1066,10 @@ test('achado concreto ancorado no diff derruba mesmo sem inspected', async () =>
     });
     assert.equal(result.ok, false);
     assert.equal(result.rejectedBy, 'codex');
-    assert.equal((await historico(root)).some((linha) => linha.result === 'refuted'), true);
+    assert.equal(
+      (await historico(root)).some((linha) => linha.result === 'refuted'),
+      true,
+    );
     const gravado = JSON.parse(await readFile(join(root, '.lms', 'last.json'), 'utf8'));
     assert.equal(gravado.score, 4);
   } finally {
@@ -487,7 +1088,10 @@ test('inspected inventado nao ganha o passe da ancora', async () => {
     // bloqueia (fail-closed), mas NAO como refutacao valida: prova falsa
     // detectada nao pode gravar scorecard de refutacao.
     assert.equal(result.ok, false);
-    assert.equal((await historico(root)).some((l) => l.result === 'refuted'), false);
+    assert.equal(
+      (await historico(root)).some((l) => l.result === 'refuted'),
+      false,
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -584,7 +1188,7 @@ test('campo secundario ausente nao destroi a refutacao: o achado derruba o 5/5',
     const gravado = JSON.parse(await readFile(join(root, '.lms', 'last.json'), 'utf8'));
     assert.equal(gravado.score, 4);
     assert.equal(gravado.findings.at(-1).refutedBy, 'codex');
-    assert.equal((await historico(root)).at(-1).result, 'refuted');
+    await assertUltimoResultado(root, 'refuted');
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -606,7 +1210,11 @@ test('payload incompleto preserva o achado, bloqueia e diz o que fazer', async (
     assert.match(result.reason ?? '', /payload-incompleto/);
     assert.match(result.reason ?? '', /ENCONTROU/);
     assert.match(result.reason ?? '', /veio sem: severity/);
-    assert.match(result.reason ?? '', /furo de autorizacao real/, 'o achado e mostrado ao operador');
+    assert.match(
+      result.reason ?? '',
+      /furo de autorizacao real/,
+      'o achado e mostrado ao operador',
+    );
     assert.equal((await historico(root)).at(-1).result, 'payload-incompleto');
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -691,8 +1299,30 @@ test('refutacao com prova que se sustenta bloqueia', async () => {
     });
     assert.equal(result.ok, false);
     assert.equal(result.rejectedBy, 'codex');
-    assert.equal((await historico(root)).at(-1).result, 'refuted');
+    await assertUltimoResultado(root, 'refuted');
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test('refutador do MESMO provider so com opt-in explicito e sem alternativa', async () => {
+  const { escolherRefutador } = await import('./lms-reviewer-fallback.mjs');
+  const base = { ordem: ['grok', 'claude'], provider: 'claude', autor: 'fable' };
+  const attempts = [
+    { provider: 'grok', result: 'timeout', durationMs: 1 },
+    { provider: 'claude', result: 'accepted', durationMs: 1 },
+  ];
+  // Sem a env: fail-closed de sempre — aceite morre sem-refutador.
+  assert.equal(escolherRefutador({ ...base, attempts, env: {} }), undefined);
+  // Com a env: o unico provider vivo refuta a si mesmo (decisao do Master, apagao
+  // de cota dupla). Nunca rouba a vez de um refutador cruzado vivo:
+  assert.equal(
+    escolherRefutador({ ...base, attempts, env: { LMS_REFUTADOR_MESMO_PROVIDER: '1' } }),
+    'claude',
+  );
+  const comGrokVivo = [{ provider: 'claude', result: 'accepted', durationMs: 1 }];
+  assert.equal(
+    escolherRefutador({ ...base, attempts: comGrokVivo, env: { LMS_REFUTADOR_MESMO_PROVIDER: '1' } }),
+    'grok',
+  );
 });

@@ -27,7 +27,9 @@ async function repo() {
 test('o subject muda quando o codigo muda, em commit ou na arvore suja', async () => {
   const { root, git } = await repo();
   try {
-    const base = 'HEAD';
+    // Base FIXA (o sha inicial), como na vida real (origin/master). Com `HEAD` a
+    // base andaria junto do commit e o invariante de estabilidade nao teria sentido.
+    const base = (await git('rev-parse', 'HEAD')).stdout.trim();
     const inicial = await reviewSubject(root, base);
 
     // Arquivo novo ainda nao rastreado ja conta: e por onde codigo entra sem passar
@@ -57,9 +59,16 @@ test('o subject muda quando o codigo muda, em commit ou na arvore suja', async (
     const sujo = await reviewSubject(root, base);
     assert.notEqual(sujo, comNaoRastreado);
 
-    // E commitar tambem muda (o diff base...HEAD passa a incluir).
+    // Commitar OS MESMOS BYTES nao muda o subject: a revisao e sobre a arvore
+    // final, e a fronteira commit/worktree e embalagem. O contrario (que esta
+    // linha exigia ate 27/08) matava toda revisao limpa no commit seguinte, e o
+    // push re-rodava a cadeia inteira para reler bytes identicos.
     await git('add', '.');
     await git('commit', '-qm', 'mudanca');
+    assert.equal(await reviewSubject(root, base), sujo, 'commit dos mesmos bytes nao pode invalidar');
+
+    // Mas mudar bytes DEPOIS do commit muda — a amarra ao conteudo continua.
+    await writeFile(join(root, 'a.ts'), 'export const a = 100;\n', 'utf8');
     assert.notEqual(await reviewSubject(root, base), sujo);
   } finally {
     await rm(root, { recursive: true, force: true });

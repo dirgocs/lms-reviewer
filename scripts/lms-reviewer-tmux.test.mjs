@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { attemptProvider, reviewPrompt, runFallback, stampScorecard } from './lms-reviewer-fallback.mjs';
-import { sessionNameFor } from './lms-reviewer-tmux.mjs';
+import { sessionNameFor, tuiCommand } from './lms-reviewer-tmux.mjs';
 
 /** Scorecard bem formado; `inspected` é preenchido pelo teste contra arquivos reais. */
 function scorecard(overrides = {}) {
@@ -166,5 +166,43 @@ test('LMS_TMUX_SESSION continua sobrescrevendo o nome derivado', () => {
   } finally {
     if (anterior === undefined) delete process.env.LMS_TMUX_SESSION;
     else process.env.LMS_TMUX_SESSION = anterior;
+  }
+});
+
+test('promptEstaRodando reconhece os marcadores dos tres TUIs e recusa prompt parado', async () => {
+  const { promptEstaRodando } = await import('./lms-reviewer-tmux.mjs');
+  // Rodando: cada marcador ISOLADO, um assert por TUI — amostra composta deixava
+  // um marcador sumir do regex sem nenhum teste cair.
+  assert.equal(promptEstaRodando('⠙ Working…'), true);
+  assert.equal(promptEstaRodando('(esc to interrupt)'), true);
+  assert.equal(promptEstaRodando('⠴ Waiting for response… 10s'), true);
+  assert.equal(promptEstaRodando('Thinking…'), true);
+  assert.equal(promptEstaRodando('Esc to cancel'), true);
+  // Parado com o TEXTO do prompt preso na caixa de input: banner engoliu o Enter.
+  // Texto presente NÃO é prova de execução — foi exatamente o furo das rodadas 54/58.
+  assert.equal(
+    promptEstaRodando('❯ Leia .lms/review-prompt.md e execute…\n› Ask Codex to do anything'),
+    false,
+  );
+});
+
+test('LMS_GROK_BIN so substitui o TUI com o atestado de trava (rodada 85)', () => {
+  const binAnterior = process.env.LMS_GROK_BIN;
+  const travaAnterior = process.env.LMS_GROK_BIN_TRAVADO;
+  process.env.LMS_GROK_BIN = '/tmp/tui-substituto';
+  try {
+    delete process.env.LMS_GROK_BIN_TRAVADO;
+    // sem o atestado: recusa o override e mantem o grok com as travas --deny
+    assert.equal(tuiCommand('grok', 'grok-4.6')[0], 'grok');
+    assert.ok(tuiCommand('grok', 'grok-4.6').includes('--deny'));
+
+    process.env.LMS_GROK_BIN_TRAVADO = '1';
+    // com o atestado: o substituto assume, carregando as proprias travas
+    assert.deepEqual(tuiCommand('grok', 'grok-4.6'), ['/tmp/tui-substituto']);
+  } finally {
+    if (binAnterior === undefined) delete process.env.LMS_GROK_BIN;
+    else process.env.LMS_GROK_BIN = binAnterior;
+    if (travaAnterior === undefined) delete process.env.LMS_GROK_BIN_TRAVADO;
+    else process.env.LMS_GROK_BIN_TRAVADO = travaAnterior;
   }
 });

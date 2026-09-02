@@ -6,7 +6,7 @@ import { join } from 'node:path';
 
 import { inspectedShapeError, inspectionError } from './lms-inspection.mjs';
 
-test('shape check rejects the old string form and short quotes', () => {
+test('shape check rejects the old string form and empty quotes', () => {
   assert.match(inspectedShapeError({}) ?? '', /inspected is required/);
   assert.match(inspectedShapeError({ inspected: [] }) ?? '', /inspected is required/);
   assert.match(
@@ -18,12 +18,47 @@ test('shape check rejects the old string form and short quotes', () => {
     /1-based integer line/,
   );
   assert.match(
-    inspectedShapeError({ inspected: [{ path: 'a.ts', line: 1, quote: 'curta' }] }) ?? '',
+    inspectedShapeError({ inspected: [{ path: 'a.ts', line: 1, quote: '   ' }] }) ?? '',
     /verbatim quote/,
+  );
+  // Citação CURTA passa na forma: linha honesta pode ter 11 caracteres
+  // (`db.commit()`), e recusar aqui queimou rodadas inteiras. Quem decide é o
+  // matcher, exigindo igualdade com a linha inteira.
+  assert.equal(
+    inspectedShapeError({ inspected: [{ path: 'a.ts', line: 1, quote: 'curta' }] }),
+    null,
   );
   assert.equal(
     inspectedShapeError({ inspected: [{ path: 'a.ts', line: 1, quote: 'linha longa o bastante' }] }),
     null,
+  );
+});
+
+test('short quote only matches when it IS the whole line', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'lms-inspec-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  await writeFile(
+    join(dir, 'w.py'),
+    'def f(db):\n    db.commit()\n    return migrouODefault\n',
+    'utf8',
+  );
+  const caso = (quote, line = 2) => ({
+    score: 5,
+    inspected: [{ path: 'w.py', line, quote }],
+  });
+
+  // Linha curta citada por inteiro (indentação normalizada): prova válida.
+  assert.equal(await inspectionError(caso('db.commit()'), new Set(), dir), null);
+  // Fragmento genérico de linha maior: continua impossível provar leitura com ele.
+  assert.match(
+    (await inspectionError(caso('return', 3), new Set(), dir)) ?? '',
+    /quote does not match/,
+  );
+  // E a exceção curta NÃO ganha a janela ±3: `db.commit()` citado na linha errada
+  // falha, mesmo com a linha certa a um passo. Entropia menor exige número exato.
+  assert.match(
+    (await inspectionError(caso('db.commit()', 1), new Set(), dir)) ?? '',
+    /quote does not match/,
   );
 });
 

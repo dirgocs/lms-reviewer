@@ -10,6 +10,29 @@ isto instalou o rigor, e um gate que passa a deixar passar é uma regressão sil
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-01
+
+### Adicionado
+
+- Fonte canônica dos scripts vivos do Karibu, incluindo runner tmux, piloto Pi,
+  contexto de diff, telemetria de severidade, política P2 e fixtures correspondentes.
+- Bins `lms-reviewer-tmux`, `lms-push-gate` e `lms-exempt-paths`.
+- Hook do Claude Code, skill completa e planos do LMS v2 no artefato do pacote.
+- Regras `exemptPaths` e `nonExemptPaths` no `lms.config.json`.
+
+### Modificado
+
+- Trigger, hook e spawn resolvem a mecânica ao lado do pacote; o projeto consumidor
+  não precisa mais manter cópias em `scripts/`.
+- `lms-push-gate` preserva o fail-closed: base indeterminável nunca é isenção.
+- Config de regex inválida descarta o conjunto inteiro, impedindo que uma exclusão
+  malformada abra um prefixo isento.
+- Instalação oficial passa a ser dependência Git pinada por tag com pnpm.
+
+### Removido
+
+- `install.sh` e o fluxo de vendoring, que criavam duas fontes divergentes.
+
 ## [1.0.0] - 2026-08-24
 
 Primeira versão como repositório próprio. Extraído do `dirgocs/karibu-erp`.
@@ -46,4 +69,5 @@ Primeira versão como repositório próprio. Extraído do `dirgocs/karibu-erp`.
   no default vazio, que é o modo mais restritivo de prompt e não desliga trava nenhuma.
 
 [Unreleased]: https://github.com/dirgocs/lms-reviewer/compare/v1.0.0...HEAD
+[1.1.0]: https://github.com/dirgocs/lms-reviewer/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/dirgocs/lms-reviewer/releases/tag/v1.0.0

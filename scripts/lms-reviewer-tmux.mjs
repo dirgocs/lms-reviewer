@@ -23,6 +23,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { reportarDesfecho, runFallback } from './lms-reviewer-fallback.mjs';
+import { collectPi } from './lms-reviewer-pi.mjs';
 
 const execFile = promisify(execFileCb);
 
@@ -72,13 +73,19 @@ async function tmux(args, { check = true } = {}) {
  * e afirmava no comentário que cobria todos; a própria cadeia pegou a mentira na
  * revisão inicial. Agora, um por um:
  */
-function tuiCommand(provider, model) {
+export function tuiCommand(provider, model) {
   if (provider === 'claude') {
     // Anthropic recusa headless com skip-permissions; na TUI é o caminho suportado.
     // --disallowedTools é a trava equivalente ao --deny do grok.
     return [
-      'claude', '--dangerously-skip-permissions', '--model', model,
-      '--disallowedTools', 'Bash(git push:*)', '--disallowedTools', 'Bash(gh pr:*)',
+      'claude',
+      '--dangerously-skip-permissions',
+      '--model',
+      model,
+      '--disallowedTools',
+      'Bash(git push:*)',
+      '--disallowedTools',
+      'Bash(gh pr:*)',
     ];
   }
   if (provider === 'codex') {
@@ -87,19 +94,96 @@ function tuiCommand(provider, model) {
     // `gh pr` não têm como sair. Bypass total daria shell irrestrito numa janela
     // não-assistida.
     return [
-      'codex', '--sandbox', 'workspace-write', '--ask-for-approval', 'never',
-      '--model', model, '-c', 'model_reasoning_effort=high',
+      'codex',
+      '--sandbox',
+      'workspace-write',
+      '--ask-for-approval',
+      'never',
+      // Mesma env e mesmo padrão do runner headless (lms-reviewer-fallback.mjs):
+      // xhigh por diretriz do Master (2026-08-27). Divergir aqui fez o refutador
+      // rodar em high por uma rodada inteira sem ninguém pedir.
+      '--model',
+      model,
+      '-c',
+      `model_reasoning_effort=${process.env.LMS_CODEX_EFFORT ?? 'xhigh'}`,
     ];
+  }
+  // grok sem cota (Master, 2026-08-27, até 01/09): LMS_GROK_BIN aponta um TUI
+  // substituto (pi + glm-5.3-flash) que carrega os próprios flags. Os flags
+  // abaixo são do CLI do grok e não fazem sentido para outro binário, então o
+  // override é tudo-ou-nada — e por isso o runner NÃO consegue verificar a
+  // trava de publicação do substituto por inspeção (achado da rodada 85). A
+  // responsabilidade fica explícita: LMS_GROK_BIN_TRAVADO=1 atesta que o
+  // binário carrega a própria trava (ex.: allowlist de tools sem bash). Sem o
+  // atestado, o override é RECUSADO e a janela sobe com o grok de sempre —
+  // fail-closed, no mesmo padrão do LMS_REFUTADOR_MESMO_PROVIDER.
+  if (process.env.LMS_GROK_BIN && process.env.LMS_GROK_BIN_TRAVADO === '1') {
+    return [process.env.LMS_GROK_BIN];
+  }
+  if (process.env.LMS_GROK_BIN) {
+    console.error(
+      'lms-reviewer-tmux: LMS_GROK_BIN ignorado sem LMS_GROK_BIN_TRAVADO=1 '
+      + '(atestado de que o TUI substituto carrega a própria trava de publicação)',
+    );
   }
   return [
     // medium de propósito: empiricamente o grok-4.6 revisa melhor em medium (Master, 2026-08-15).
-    'grok', '--model', model, '--reasoning-effort', 'medium', '--always-approve',
-    '--deny', 'Bash(git push:*)', '--deny', 'Bash(gh pr:*)',
+    'grok',
+    '--model',
+    model,
+    '--reasoning-effort',
+    'medium',
+    '--always-approve',
+    '--deny',
+    'Bash(git push:*)',
+    '--deny',
+    'Bash(gh pr:*)',
   ];
 }
 
 async function killWindow(provider) {
   await tmux(['kill-window', '-t', `${SESSION}:lms-${provider}`], { check: false });
+}
+
+/** O texto do pane mostra um agente TRABALHANDO?
+ *
+ * Marcadores de execucao dos tres TUIs (claude: "esc to interrupt"; codex:
+ * "Working"/"interrupt"; grok: "Waiting for response"). Presenca do TEXTO do prompt
+ * nao basta: ele tambem aparece parado na caixa de input quando o Enter foi engolido.
+ * Exportado puro para ser testavel sem tmux. */
+export function promptEstaRodando(pane) {
+  return /Working|interrupt|Waiting for response|Thinking|Esc to cancel/i.test(pane);
+}
+
+/** Envia o prompt e espera prova de que ele ENTROU; reenvia ate 3 vezes.
+ *
+ * Retentativa 1+ manda so Enter primeiro: se o texto ficou preso na caixa de input
+ * (banner engoliu apenas o Enter), submeter o que ja esta la evita duplicar a
+ * instrucao. So depois reenvia o texto completo. */
+async function enviarPromptAteEntrar(window, relOut) {
+  const texto =
+    `Leia .lms/review-prompt.md e execute exatamente o que ele pede. ` +
+    `Grave o JSON que ele especifica em ${relOut} e pare. Nao altere nenhum outro arquivo.`;
+  for (let tentativa = 0; tentativa < 3; tentativa += 1) {
+    if (tentativa === 0) {
+      await tmux(['send-keys', '-t', `${SESSION}:${window}`, '-l', texto]);
+      await sleep(1000);
+    }
+    await tmux(['send-keys', '-t', `${SESSION}:${window}`, 'Enter']);
+    for (let i = 0; i < 10; i += 1) {
+      await sleep(3000);
+      const pane = await tmux(['capture-pane', '-p', '-t', `${SESSION}:${window}`], {
+        check: false,
+      });
+      if (promptEstaRodando(pane)) return true;
+    }
+    // Nada rodando em 30s: reenvia o texto inteiro na proxima volta.
+    if (tentativa > 0) {
+      await tmux(['send-keys', '-t', `${SESSION}:${window}`, '-l', texto]);
+      await sleep(1000);
+    }
+  }
+  return false;
 }
 
 /**
@@ -125,32 +209,58 @@ async function collectTmux({ root, provider, config, prompt }) {
     await tmux(['new-session', '-d', '-s', SESSION, '-n', 'runner']);
   }
   await killWindow(provider);
-  await tmux(['new-window', '-t', SESSION, '-n', window, '-c', root, ...tuiCommand(provider, model)]);
+  await tmux([
+    'new-window',
+    '-t',
+    SESSION,
+    '-n',
+    window,
+    '-c',
+    root,
+    ...tuiCommand(provider, model),
+  ]);
 
   await sleep(BOOT_MS);
   // A instrucao NAO diz "scorecard": a mesma coleta serve ao contraditorio, cujo JSON
   // tem outra forma. Pedir scorecard ali faria o agente gravar um, o veredito viria
   // sem `refuted`, e o contraditorio falharia ABERTO — decorativo justamente no
   // caminho principal.
-  await tmux([
-    'send-keys', '-t', `${SESSION}:${window}`, '-l',
-    `Leia .lms/review-prompt.md e execute exatamente o que ele pede. `
-    + `Grave o JSON que ele especifica em ${relOut} e pare. Nao altere nenhum outro arquivo.`,
-  ]);
-  await sleep(1000);
-  await tmux(['send-keys', '-t', `${SESSION}:${window}`, 'Enter']);
+  //
+  // E o envio e CONFIRMADO, nao cego: banner de quota e modal de update engolem o
+  // send-keys em silencio, e ja custaram duas rodadas — o painel ficava parado ate o
+  // teto de 40 min com o prompt perdido. O deadline do candidato so comeca a contar
+  // DEPOIS de o prompt comprovadamente entrar; antes disso o tempo era consumido por
+  // uma espera que nunca ia produzir nada.
+  const entrou = await enviarPromptAteEntrar(window, relOut);
+  if (!entrou) {
+    console.error(`lms-reviewer-tmux: prompt nao entrou na TUI de ${provider} apos 3 tentativas`);
+    return { kind: 'timeout' };
+  }
 
   const deadline = Date.now() + TIMEOUT_MS;
+  // Aceitar o PRIMEIRO JSON parseável era um bug caro: o revisor grava o candidato
+  // em mais de um passo (um JSON válido sem `inspected`, depois o completo), o poll
+  // pegava a primeira versão e a rodada morria como "payload-incompleto" — com o
+  // arquivo COMPLETO no disco segundos depois. 25 ocorrências e ~118 min no
+  // histórico; a rodada 62 quase perdeu um aceite 5/5 assim. O candidato só vale
+  // quando duas leituras consecutivas devolvem os MESMOS bytes parseáveis.
+  let leituraAnterior = null;
   while (Date.now() < deadline) {
     await sleep(POLL_MS);
     if (!existsSync(outPath)) continue;
     // Arquivo recém-criado pode estar pela metade: JSON inválido aqui não é veredito,
     // é escrita em andamento — segue esperando até o teto.
     try {
-      const candidate = JSON.parse(await readFile(outPath, 'utf8'));
+      const texto = await readFile(outPath, 'utf8');
+      const candidate = JSON.parse(texto);
+      if (texto !== leituraAnterior) {
+        leituraAnterior = texto;
+        continue;
+      }
       await killWindow(provider);
       return { kind: 'ok', candidate };
     } catch {
+      leituraAnterior = null;
       continue;
     }
   }
@@ -165,6 +275,7 @@ async function main() {
     root: process.cwd(),
     env: process.env,
     collect: collectTmux,
+    collectShadow: collectPi,
     outputPathFor: (provider) => `.lms/candidates/${provider}.json`,
   });
   process.exitCode = reportarDesfecho(result, 'lms-reviewer-tmux');

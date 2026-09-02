@@ -1,25 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { collectOutput } from './lms-process-utils.mjs';
 const sourceRoot = process.cwd();
 const trigger = join(sourceRoot, 'scripts', 'lms-reviewer-trigger.sh');
-const validator = join(sourceRoot, 'scripts', 'lms-scorecard.mjs');
-const inspectionModule = join(sourceRoot, 'scripts', 'lms-inspection.mjs');
-const subjectModule = join(sourceRoot, 'scripts', 'lms-subject.mjs');
 
 async function fixture(initialScorecard) {
   const root = await mkdtemp(join(tmpdir(), 'lms-trigger-'));
   await mkdir(join(root, '.lms'), { recursive: true });
-  await mkdir(join(root, 'scripts'), { recursive: true });
-  await writeFile(join(root, 'scripts', 'lms-scorecard.mjs'), await readFile(validator));
-  await writeFile(join(root, 'scripts', 'lms-inspection.mjs'), await readFile(inspectionModule));
-  // O validador importa o modulo do subject; sem copia-lo aqui ele nem carrega, e a
-  // falha aparece disfarcada de 'scorecard invalido'.
-  await writeFile(join(root, 'scripts', 'lms-subject.mjs'), await readFile(subjectModule));
+  // O projeto consumidor NAO recebe copias em <root>/scripts. O trigger executado
+  // a partir do pacote deve resolver validador e runner ao lado de si mesmo.
   // A prova de leitura e conferida no disco, entao o arquivo citado tem de existir
   // dentro da raiz temporaria onde o trigger roda.
   await writeFile(join(root, 'a.ts'), 'export const citado = 42; // linha citada verbatim\n', 'utf8');
@@ -76,6 +69,25 @@ test('accepts a valid fresh scorecard without starting the runner', async () => 
   try {
     const result = await runTrigger({ root, runner, extraEnv: { LMS_TEST_RUNNER_MODE: 'fail' } });
     assert.equal(result.code, 0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('resolves validator from the package when consumer has no LMS scripts', async () => {
+  const { root, runner } = await fixture({
+    reviewer: 'grok', score: 5, target: 5, base: 'HEAD~1', p0: 0, p1: 0, p2: 0,
+    lenses: {
+      'code-safety': { p0: 0, p1: 0, p2: 0 },
+      'code-structure': { p0: 0, p1: 0, p2: 0 },
+      'code-quality': { p0: 0, p1: 0, p2: 0 },
+      'code-efficiency': { p0: 0, p1: 0, p2: 0 },
+    }, at: new Date().toISOString(), autonomy: 'reviewer', fallow: 'pass',
+    inspected: [{ path: 'a.ts', line: 1, quote: 'export const citado = 42; // linha citada verbatim' }],
+  });
+  try {
+    const result = await runTrigger({ root, runner, extraEnv: { LMS_TEST_RUNNER_MODE: 'fail' } });
+    assert.equal(result.code, 0, `${result.stdout}\n${result.stderr}`);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

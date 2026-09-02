@@ -1,86 +1,100 @@
 # lms-reviewer
 
-Gate de push **bloqueante**: uma cadeia de revisores headless (Claude → Grok → Codex)
-julga o diff da branch e produz um *scorecard* que é verificado contra o disco. Sem
-scorecard válido e fresco para *aquele* diff, o push não sai.
+Gate de publicação **bloqueante**. Uma cadeia de revisores julga o diff da branch,
+produz um scorecard e o verifica contra os arquivos no disco. Sem scorecard 5/5,
+fresco e pertencente àquele diff, o push não sai.
 
-Extraído do `dirgocs/karibu-erp`. Aqui é agnóstico de projeto.
-
-## O que faz ele valer a pena
-
-O valor não está em "chamar um LLM para revisar" — está nas quatro travas que
-impedem a revisão de virar teatro. Todas nasceram de um bug real em que **o gate
-estava invertido: quanto mais problema o código tinha, mais fácil passar.**
-
-| Trava                          | Sem ela                                                                     |
-| ------------------------------ | ---------------------------------------------------------------------------- |
-| O diff vai **dentro** do prompt | Reviewer sem `git` não sabia o que mudou e terminava em `Cancelled`         |
-| `inspected` conferido no disco  | O modelo alegava ter lido arquivos; agora prova com `{path, line, quote}`    |
-| Falha da cadeia **bloqueia**    | Cadeia inteira falhando fazia `exit 0` com warning e liberava o push         |
-| Contrato de saída é JSON        | Contrato em prosa fazia os três providers errarem campos e serem descartados |
-
-A consequência do conjunto: reprovar é uma resposta **legítima e esperada**, não um
-"reviewer quebrado". Achado real leva a push bloqueado — que era exatamente o que
-não acontecia antes.
+Extraído do `dirgocs/karibu-erp`; desde a v1.1 este pacote é a fonte canônica. O
+projeto consumidor guarda apenas seus fatos em `lms.config.json` e aponta hooks e
+scripts para o pacote pinado por tag.
 
 ## Instalação
 
+Na raiz do projeto consumidor:
+
 ```bash
-git clone git@github.com:dirgocs/lms-reviewer.git ~/dev/lms-reviewer
-~/dev/lms-reviewer/install.sh /caminho/do/projeto
+pnpm add -D github:dirgocs/lms-reviewer#v1.1.0
 ```
 
-Copia os módulos para `<projeto>/scripts/`, adiciona `.lms/` ao `.gitignore` e
-liga o trigger no `pre-push` (husky ou `.git/hooks`).
+Ligue o gate ao `pre-push`, preservando os gates de produto que já existirem:
 
-## Configuração
+```sh
+pnpm exec lms-push-gate || exit 1
+```
 
-**Providers, ordem e modelos são variáveis de ambiente:**
+O comando lê do stdin as refs que o Git entrega ao hook. Push só de paths isentos
+retorna sem chamar reviewers; conjunto misto, código ou base indeterminável passam
+obrigatoriamente pelo `lms-trigger`.
 
-| Variável                  | Default              |
-| ------------------------- | -------------------- |
-| `LMS_REVIEWER_ORDER`      | `claude,grok,codex`  |
-| `LMS_CLAUDE_MODEL`        | `claude-opus-4-8`    |
-| `LMS_GROK_MODEL`          | `grok-4.6`           |
-| `LMS_CODEX_MODEL`         | `gpt-5.6-sol`        |
-| `LMS_{CLAUDE,GROK,CODEX}_BIN` | nome do binário  |
-| `LMS_CLAUDE_EFFORT`       | `high`               |
-| `LMS_REVIEWER_TIMEOUT_SEC`| `900`                |
+Para o hook `PreToolUse` do Claude Code, aponte para:
 
-**Caminhos do projeto ficam em `lms.config.json`** (opcional — veja
-`lms.config.example.json`). Sem esse arquivo o gate roda como revisor puro de diff,
-que já é útil. Os dois campos que existem são isenções e medições que só fazem
-sentido se o projeto realmente as tiver:
+```text
+${CLAUDE_PROJECT_DIR}/node_modules/@dirgocs/lms-reviewer/hooks/local-merge-score-gate.sh
+```
 
-- `migrationsPath` — liga a regra de *migration append-only*. Sem ela a cadeia não
-  converge em repos com migrations: cada rodada acha o próximo defeito teórico na
-  mesma história imutável. **Não declare se o projeto não tem migrations** — seria
-  isentar uma pasta inexistente.
-- `fallow.gate` — gate de regressão de métrica, medido pelo *runner*, nunca
-  declarado pelo reviewer (o modelo não tem shell nem relógio confiável).
+A skill completa está em
+`node_modules/@dirgocs/lms-reviewer/skills/local-merge-score/`. O consumidor pode
+montá-la por symlink no diretório de skills do agente, sem copiar conteúdo.
+
+Adicione `.lms/` ao `.gitignore`: scorecards, logs e telemetria são estado local.
+
+## Comandos
+
+| Binário | Função |
+| --- | --- |
+| `lms-push-gate` | Classifica o push e chama o trigger quando há código |
+| `lms-trigger` | Valida o scorecard ou executa a cadeia de reviewers |
+| `lms-reviewer` | Abre a sessão isolada do reviewer |
+| `lms-reviewer-tmux` | Executa a cadeia dirigida pelas TUIs no tmux |
+| `lms-exempt-paths` | Classifica uma lista de paths usando `lms.config.json` |
+
+## Por que o gate é confiável
+
+| Trava | O que evita |
+| --- | --- |
+| Diff dentro do prompt | Reviewer sem contexto julgando a tarefa errada |
+| `inspected` conferido no disco | Alegação falsa de que um arquivo foi lido |
+| Identidade do diff | Scorecard antigo autorizando código novo |
+| Falha fechada | Timeout, CLI ausente ou JSON inválido liberando push |
+| Contraditório obrigatório | Aceite 5/5 sem uma segunda tentativa de derrubá-lo |
+
+Reprovação é um resultado legítimo, não uma falha técnica. Achado real bloqueia e
+vai para `.lms/last.json`; falha dos providers também bloqueia e fica registrada em
+`.lms/fallback.log`.
+
+## Configuração por projeto
+
+`lms.config.json` é opcional; o shape completo está em
+[`lms.config.example.json`](./lms.config.example.json).
+
+- `migrationsPath`: pasta append-only. Só quando declarada o prompt explica que uma
+  migration aplicada não pode ser reescrita.
+- `dbStateGate`: verificador do estado vivo do banco que cobre o risco fora do diff.
+- `fallow.gate` e `fallow.baseline`: medição objetiva executada pelo runner.
+- `exemptPaths`: regexes; **todo** arquivo precisa casar para o push ser isento.
+- `nonExemptPaths`: exceções prioritárias dentro de um prefixo isento.
+
+Config inválida descarta o conjunto inteiro e cai nos defaults restritivos; regex de
+exclusão quebrada nunca pode abrir uma isenção configurada.
+
+Providers, ordem, modelos e timeouts continuam em variáveis `LMS_*`. Defaults:
+`claude,grok,codex`, `claude-opus-4-8`, `grok-4.6`, `gpt-5.6-sol`, esforço Claude
+`high` e timeout de 900 segundos.
 
 ## Testes
 
 ```bash
-npm test    # 48 testes, sem rede e sem chamar nenhum CLI
+pnpm test
 ```
 
-## Pré-requisitos
+A suíte não usa rede nem chama reviewers reais. Fixtures exercitam Git, runners
+falsos, o hook do Claude Code, o gate de push e o conteúdo publicável do pacote.
 
-Node ≥ 22, `git`, `tmux` (para a sessão de revisão interativa) e os CLIs revisores
-no PATH e autenticados: `claude`, `grok`, `codex`. Um provider ausente só custa a
-vez dele na cadeia — mas a cadeia inteira falhando **bloqueia**, não libera.
+## Pré-requisitos e versionamento
 
-## Versionamento
+Node ≥ 22, pnpm, Git e os CLIs configurados para os providers escolhidos. `tmux` é
+necessário para o modo padrão; sem ele o trigger cai para o runner headless.
 
-[SemVer](https://semver.org/lang/pt-BR/) com tags anotadas `vX.Y.Z`; histórico em
-[`CHANGELOG.md`](./CHANGELOG.md). A versão canônica é o `version` do `package.json`.
-
-**Afrouxar uma trava do gate é breaking change**, mesmo que nada quebre tecnicamente:
-quem instalou isto instalou o rigor, e um gate que passa a deixar passar é uma
-regressão silenciosa. Também são breaking: schema do scorecard, contrato do
-`lms.config.json` e nomes das variáveis `LMS_*`.
-
-`install.sh` copia os módulos para `<projeto>/scripts/`, então atualizar é rodá-lo de
-novo. Antes disso, rode `npm test` neste repo: 48 testes cobrem o gate sem rede e sem
-chamar nenhum CLI, e são a rede de segurança de quem depende do bloqueio.
+O projeto segue SemVer, tags `vX.Y.Z` e
+[`CHANGELOG.md`](./CHANGELOG.md). Afrouxar uma trava é breaking change: quem instala
+este pacote instala o rigor, não apenas a API técnica.
