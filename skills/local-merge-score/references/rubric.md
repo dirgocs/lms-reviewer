@@ -30,7 +30,7 @@ Aligned with Greptile’s merge-confidence semantics (not identical algorithm).
 
 | Diff touches (path heuristics) | Rule |
 |--------------------------------|------|
-| `services/fiscal/**` | Any remaining P1 → LMS ≤ 2; any P2 only → LMS ≤ 4 |
+| Fiscal/compliance paths identified by project rules | Any remaining P1 → LMS ≤ 2; any P2 only → LMS ≤ 4 |
 | Auth / session / RLS / tenant middleware | Same as fiscal |
 | Payments / acquirer / money paths | Same as fiscal |
 | `**/*.{sql,prisma}` schema | Any P1 → LMS ≤ 2 |

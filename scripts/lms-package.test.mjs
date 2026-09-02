@@ -6,9 +6,10 @@ import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+const skill = readFileSync(join(root, 'skills/local-merge-score/SKILL.md'), 'utf8');
 
 test('v1.1 expoe todos os comandos usados pelo consumidor', () => {
-  assert.equal(pkg.version, '1.1.0');
+  assert.equal(pkg.version, '1.1.1');
   assert.deepEqual(pkg.bin, {
     'lms-trigger': './scripts/lms-reviewer-trigger.sh',
     'lms-reviewer': './scripts/lms-reviewer-spawn.sh',
@@ -34,4 +35,20 @@ test('hook resolve mecanica no pacote, nunca em scripts vendorizados do consumid
   const hook = readFileSync(join(root, 'hooks/local-merge-score-gate.sh'), 'utf8');
   assert.doesNotMatch(hook, /\$ROOT\/scripts\/lms-/);
   assert.match(hook, /PACKAGE_ROOT/);
+});
+
+test('skill documenta somente a interface publica instalada no consumidor', () => {
+  assert.doesNotMatch(skill, /\.claude\/hooks\/local-merge-score-gate\.sh/);
+  assert.doesNotMatch(skill, /scripts\/lms-reviewer-(?:spawn|trigger)\.sh/);
+  assert.doesNotMatch(skill, /scripts\/lms-reviewer-fallback\.mjs/);
+  assert.match(skill, /pnpm lms:reviewer/);
+  assert.match(skill, /pnpm lms:trigger/);
+  assert.match(skill, /node_modules\/@dirgocs\/lms-reviewer\/hooks\/local-merge-score-gate\.sh/);
+});
+
+test('skill recebe regras de negocio do projeto consumidor', () => {
+  assert.doesNotMatch(skill, /Karibu project rules/);
+  assert.doesNotMatch(skill, /hotel_id/);
+  assert.match(skill, /AGENTS\.md/);
+  assert.match(skill, /lms\.config\.json/);
 });

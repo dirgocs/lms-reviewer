@@ -10,6 +10,15 @@ isto instalou o rigor, e um gate que passa a deixar passar é uma regressão sil
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-09-01
+
+### Corrigido
+
+- A skill instalada documenta apenas os comandos públicos e o caminho real do hook no
+  pacote, sem apontar para scripts vendorizados que o consumidor removeu.
+- Regras de negócio passam a vir do `AGENTS.md` e do `lms.config.json` do consumidor;
+  a skill canônica não fixa mais convenções internas do Karibu.
+
 ## [1.1.0] - 2026-09-01
 
 ### Adicionado
@@ -68,6 +77,7 @@ Primeira versão como repositório próprio. Extraído do `dirgocs/karibu-erp`.
 - `lms.config.json` inválido **não** vira aprovação silenciosa: avisa no stderr e cai
   no default vazio, que é o modo mais restritivo de prompt e não desliga trava nenhuma.
 
-[Unreleased]: https://github.com/dirgocs/lms-reviewer/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/dirgocs/lms-reviewer/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/dirgocs/lms-reviewer/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/dirgocs/lms-reviewer/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/dirgocs/lms-reviewer/releases/tag/v1.0.0

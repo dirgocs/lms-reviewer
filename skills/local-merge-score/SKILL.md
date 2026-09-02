@@ -8,8 +8,8 @@ description: >
   on the current branch/diff.
 license: MIT
 metadata:
-  author: karibu-erp
-  version: '1.0'
+  author: dirgocs/lms-reviewer
+  version: '1.1'
 ---
 
 # Local Merge Score (LMS)
@@ -110,7 +110,7 @@ aspiracional. Dizer "prefira `/code-review`" para um agente que não consegue ch
 o tipo de documentação que faz perder tempo até descobrir sozinho.
 
 **Agente (caminho principal):** cadeia de revisores em tmux — `pnpm lms:reviewer:tmux`,
-ou automaticamente pelo `lms-reviewer-trigger.sh` no pre-push. Cada provider roda na TUI
+ou automaticamente pelo `pnpm lms:trigger` no pre-push. Cada provider roda na TUI
 dele, com as ferramentas nativas, e grava `.lms/candidates/<provider>.json`. Isso é
 `autonomy: "reviewer"`: revisor independente de verdade, que é a categoria mais forte.
 `LMS_REVIEWER_MODE=headless` volta à invocação headless (CI, container sem TTY).
@@ -139,7 +139,9 @@ Classify **every** finding into one primary **lens**:
 | **code-quality**    | Correctness in this diff, edge cases, missing tests, broken contracts  |
 | **code-efficiency** | New complexity, hotspots, duplication, unnecessary deps                |
 
-Also cover Karibu rules: PNPM-only (ADR-009), tenant/RLS (ADR-014), no raw SQL interpolation, no mock/test without UPPERCASE.md.
+Also cover the consumer's rules from the root and nearest `AGENTS.md` (or equivalent)
+and the project facts declared in `lms.config.json`. Business rules belong to the
+consumer; the package must not guess its tenant key, package manager, or service layout.
 
 For each finding emit:
 
@@ -157,7 +159,7 @@ For each finding emit:
 **Drop** pre-existing issues not introduced by the diff.<br>
 **Drop** pure style/format (linter owns it).
 
-Karibu severity anchors:
+Severity anchors:
 
 | Severity | Examples                                                                            |
 | -------- | ----------------------------------------------------------------------------------- |
@@ -264,7 +266,8 @@ Quick map:
 
 Contextual caps (apply **after** base score, take the lower):
 
-- Paths under `services/fiscal/**`, `**/auth/**`, `**/rls/**`, tenant middleware, payments: if any P1 remains → LMS ≤ 2; if only P2 → LMS ≤ 4
+- Fiscal/compliance, auth, RLS/tenant, and payment paths identified by project rules:
+  if any P1 remains → LMS ≤ 2; if only P2 → LMS ≤ 4
 - CI-only / docs-only diff with no logic: do not invent P1; score can be 5 if review is empty
 
 ### 5–6. Loop
@@ -389,7 +392,10 @@ mkdir -p .lms
 }
 ```
 
-Use real values and ISO-8601 UTC for `at`. The Claude PreToolUse hook (`.claude/hooks/local-merge-score-gate.sh`) reads this file before `git commit` / `git push` / `gh pr create`.
+Use real values and ISO-8601 UTC for `at`. When installed as documented, the Claude
+PreToolUse hook at
+`node_modules/@dirgocs/lms-reviewer/hooks/local-merge-score-gate.sh` reads this file
+before `git commit` / `git push` / `gh pr create`.
 
 | Env                               | Effect                                                                                                                      |
 | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
@@ -411,13 +417,14 @@ Default is inject-context only (not strict). `.lms/` is gitignored runtime state
 | **check-pr**                   | Read existing PR comments — optional after open PR              |
 | **ponytail**                   | Use when fixing over-engineering P2s                            |
 
-## Karibu project rules (always apply in review)
+## Consumer project rules (always apply in review)
 
-- PNPM only (ADR-009); reject npm/yarn lockfiles
-- Multi-tenant: `hotel_id` / RLS; no client-side tenant filter without policy
-- No raw user input in SQL strings
-- No test/mock production path without UPPERCASE `.md` notice
-- Prefer production-ready code
+- Read the root and nearest `AGENTS.md` (or the repository's equivalent instruction
+  files) before reviewing a subtree.
+- Treat `lms.config.json` as the source for consumer-specific paths and gates.
+- Apply the repository's business, security, tenancy, package-manager, testing, and
+  production-readiness rules exactly as written; do not replace them with package
+  defaults.
 
 ## Failure modes
 
@@ -437,8 +444,8 @@ Empty intersection → `PXPIPE_MODELS=off` (pass-through). Per-request imaging
 is pxpipe’s profitability gate. Do not ask the user to toggle pxpipe.
 Byte-exact safety work → subagent on a model outside the imaging allowlist.
 
-- Spawn: `scripts/lms-reviewer-spawn.sh` (`pnpm lms:reviewer`)
-- Auto-trigger on publish: `scripts/lms-reviewer-trigger.sh` (`pnpm lms:trigger`)
+- Spawn: `pnpm lms:reviewer`
+- Auto-trigger on publish: `pnpm lms:trigger`
 - Detached spawn for hooks: `LMS_SPAWN_DETACHED=1`
 - Bypass: `LMS_SKIP=1` / `LMS_HOOK_SKIP=1`
 - If proxy missing: graceful OFF (unless `LMS_REQUIRE_PXPIPE=1`)
@@ -459,8 +466,8 @@ The publication gate runs authenticated local reviewers headlessly when
    sem `-`. O `-s read-only` é obrigatório: o codex lê arquivos executando shell, e o
    sandbox é o que impede mutação.
 
-The runner is `scripts/lms-reviewer-fallback.mjs` and the trigger is
-`scripts/lms-reviewer-trigger.sh`. Model and timeout overrides are
+The public entry points are `pnpm lms:reviewer` and `pnpm lms:trigger`; their
+implementation lives in the installed package. Model and timeout overrides are
 `LMS_CLAUDE_MODEL`, `LMS_GROK_MODEL`, `LMS_CODEX_MODEL`,
 `LMS_REVIEWER_ORDER`, and `LMS_REVIEWER_TIMEOUT_SEC`. OAuth remains in each
 CLI's local session; no provider credentials are read or logged by the repo.
