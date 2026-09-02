@@ -10,6 +10,14 @@ isto instalou o rigor, e um gate que passa a deixar passar é uma regressão sil
 
 ## [Unreleased]
 
+## [1.1.4] - 2026-09-01
+
+### Corrigido
+
+- `goal-loop.md` e o hook PreToolUse deixam de citar `pnpm local:review`, script
+  que não existe no consumidor. O fluxo público é `pnpm exec lms-trigger` /
+  `pnpm exec fallow`.
+
 ## [1.1.3] - 2026-09-01
 
 ### Removido
@@ -93,7 +101,8 @@ Primeira versão como repositório próprio. Extraído do `dirgocs/karibu-erp`.
 - `lms.config.json` inválido **não** vira aprovação silenciosa: avisa no stderr e cai
   no default vazio, que é o modo mais restritivo de prompt e não desliga trava nenhuma.
 
-[Unreleased]: https://github.com/dirgocs/lms-reviewer/compare/v1.1.3...HEAD
+[Unreleased]: https://github.com/dirgocs/lms-reviewer/compare/v1.1.4...HEAD
+[1.1.4]: https://github.com/dirgocs/lms-reviewer/compare/v1.1.3...v1.1.4
 [1.1.3]: https://github.com/dirgocs/lms-reviewer/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/dirgocs/lms-reviewer/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/dirgocs/lms-reviewer/compare/v1.1.0...v1.1.1

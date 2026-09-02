@@ -535,7 +535,7 @@ def emit(context: str, block: bool = False, reason: str = "") -> None:
 base_ctx = (
     "LOCAL-MERGE-SCORE (LMS) gate: before git commit / git push / gh pr create, "
     "follow the `local-merge-score` skill. "
-    "1) `pnpm local:review` (orient) 2) code-review findings (conf≥80) four lenses "
+    "1) `pnpm exec lms-trigger` 2) code-review findings (conf≥80) four lenses "
     "3) optional graphify query/path 4) score 0–5 5) write `.lms/last.json` "
     "with score, lenses, autonomy. Defaults: target 5 (only 5/5 ships), plateau-stop 2, ceiling 8. "
     "Greptile saiu do pipeline (2026-08-27); use apenas o LMS. "

@@ -9,7 +9,7 @@ const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 const skill = readFileSync(join(root, 'skills/local-merge-score/SKILL.md'), 'utf8');
 
 test('v1.1 expoe todos os comandos usados pelo consumidor', () => {
-  assert.equal(pkg.version, '1.1.3');
+  assert.equal(pkg.version, '1.1.4');
   assert.deepEqual(pkg.bin, {
     'lms-trigger': './scripts/lms-reviewer-trigger.sh',
     'lms-reviewer': './scripts/lms-reviewer-spawn.sh',
@@ -56,6 +56,10 @@ test('skill documenta somente a interface publica instalada no consumidor', () =
   assert.doesNotMatch(skill, /pnpm lms:(?:reviewer|trigger)/);
   assert.doesNotMatch(skill, /pnpm local:review/);
   assert.doesNotMatch(skill, /pxpipe/i);
+  const goalLoop = readFileSync(join(root, 'skills/local-merge-score/references/goal-loop.md'), 'utf8');
+  const hook = readFileSync(join(root, 'hooks/local-merge-score-gate.sh'), 'utf8');
+  assert.doesNotMatch(goalLoop, /pnpm local:review/);
+  assert.doesNotMatch(hook, /pnpm local:review/);
   assert.match(skill, /node_modules\/@dirgocs\/lms-reviewer\/hooks\/local-merge-score-gate\.sh/);
 });
 

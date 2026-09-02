@@ -15,7 +15,7 @@ Requirements: `/goal` ≥ v2.1.139 · `/loop` ≥ v2.1.72.<br>
 ```text
 /goal LMS = 5/5 with .lms/last.json written this session; zero P0 and zero P1
 across code-safety, code-structure, code-quality, code-efficiency (conf≥80);
-pnpm local:review evidence in transcript; no @greptile review; stop early and escalate if score plateaus 2 iterations; hard stop after 8 iterations
+pnpm exec fallow evidence in transcript; no @greptile review; stop early and escalate if score plateaus 2 iterations; hard stop after 8 iterations
 ```
 
 ## Per-lens goals (large diffs — order: safety → quality → structure → efficiency)
