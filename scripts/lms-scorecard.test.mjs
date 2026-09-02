@@ -69,6 +69,31 @@ test('recusa asercao sem texto de claim', () => {
   assert.match(scorecardFormError(card, options), /claim/);
 });
 
+test('aceita lente declarada inaplicavel com motivo', () => {
+  const card = validScorecard();
+  card.lenses['code-efficiency'] = {
+    p0: 0, p1: 0, p2: 0,
+    applicable: false,
+    na_reason: 'diff toca apenas documentacao; nao ha caminho de execucao',
+  };
+  assert.equal(scorecardFormError(card, options), null);
+});
+
+test('recusa lente inaplicavel sem motivo', () => {
+  const card = validScorecard();
+  card.lenses['code-efficiency'] = { p0: 0, p1: 0, p2: 0, applicable: false };
+  assert.match(scorecardFormError(card, options), /na_reason/);
+});
+
+test('recusa lente inaplicavel que ainda reporta achado', () => {
+  const card = validScorecard();
+  card.lenses['code-efficiency'] = {
+    p0: 0, p1: 1, p2: 0, applicable: false, na_reason: 'nao se aplica a este diff',
+  };
+  card.p1 = 1;
+  assert.match(scorecardFormError(card, options), /applicable: false/);
+});
+
 test('accepts a fresh 5/5 scorecard with zero findings', () => {
   assert.equal(validateScorecard(validScorecard(), options), true);
 });

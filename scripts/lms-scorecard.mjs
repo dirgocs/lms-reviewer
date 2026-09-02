@@ -16,13 +16,29 @@ function isNonNegativeInteger(value) {
   return Number.isInteger(value) && value >= 0;
 }
 
-function lensFindings(lens) {
-  return (
-    lens &&
-    isNonNegativeInteger(lens.p0) &&
-    isNonNegativeInteger(lens.p1) &&
-    isNonNegativeInteger(lens.p2)
-  );
+const MIN_NA_REASON = 15;
+
+/**
+ * Lente vazia era ambigua: `{p0:0,p1:0,p2:0}` significa "limpo" ou "nao olhei"?
+ * `applicable: false` obriga a dizer qual dos dois, com motivo — e uma lente
+ * inaplicavel nao pode reportar achado, senao ela se aplicava.
+ */
+function lensError(lens, nome) {
+  if (!lens || typeof lens !== 'object' || Array.isArray(lens)) {
+    return `invalid findings for ${nome}`;
+  }
+  for (const field of ['p0', 'p1', 'p2']) {
+    if (!isNonNegativeInteger(lens[field])) return `invalid findings for ${nome}`;
+  }
+  if (lens.applicable === false) {
+    if (typeof lens.na_reason !== 'string' || lens.na_reason.trim().length < MIN_NA_REASON) {
+      return `${nome} is marked applicable: false and needs a "na_reason" explaining why`;
+    }
+    if (lens.p0 + lens.p1 + lens.p2 > 0) {
+      return `${nome} has findings but is marked applicable: false`;
+    }
+  }
+  return null;
 }
 
 function objectError(value) {
@@ -72,7 +88,8 @@ function lensTotals(value) {
   const totals = { p0: 0, p1: 0, p2: 0 };
   for (const lensName of LENSES) {
     const lens = value.lenses[lensName];
-    if (!lensFindings(lens)) return { error: `invalid findings for ${lensName}` };
+    const erro = lensError(lens, lensName);
+    if (erro) return { error: erro };
     for (const field of Object.keys(totals)) totals[field] += lens[field];
   }
   return { totals };
