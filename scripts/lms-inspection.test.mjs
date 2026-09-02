@@ -4,7 +4,33 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { inspectedShapeError, inspectionError } from './lms-inspection.mjs';
+import {
+  citationShapeError,
+  citationsDiskError,
+  inspectedShapeError,
+  inspectionError,
+} from './lms-inspection.mjs';
+
+test('citationShapeError nomeia o campo na mensagem', () => {
+  const erro = citationShapeError([{ path: 'a.ts', line: 0, quote: 'x'.repeat(20) }], 'verified');
+  assert.match(erro, /verified/);
+  assert.match(erro, /1-based/);
+});
+
+test('citationShapeError aceita entradas bem formadas', () => {
+  assert.equal(
+    citationShapeError([{ path: 'a.ts', line: 3, quote: 'uma linha citada' }], 'verified'),
+    null,
+  );
+});
+
+test('citationsDiskError reprova citacao que nao existe no arquivo', async () => {
+  const erro = await citationsDiskError(
+    [{ path: 'package.json', line: 1, quote: 'ESTA LINHA NAO EXISTE NO ARQUIVO' }],
+    process.cwd(),
+  );
+  assert.match(erro, /package\.json/);
+});
 
 test('shape check rejects the old string form and empty quotes', () => {
   assert.match(inspectedShapeError({}) ?? '', /inspected is required/);

@@ -106,27 +106,60 @@ export async function changedOpenablePaths(root, base) {
   }
 }
 
-/** Forma da prova. Síncrono, sem tocar o disco. */
-export function inspectedShapeError(value) {
-  const inspected = value.inspected;
-  if (!Array.isArray(inspected) || inspected.length === 0) {
-    return 'inspected is required: list the files you opened as {path, line, quote}';
+/**
+ * Forma de uma lista de citacoes. Sincrono, sem tocar o disco.
+ *
+ * `campo` entra na mensagem porque quem le o erro e um modelo tentando de novo:
+ * "inspected entry needs a non-empty path" e acionavel, "invalid entry" nao.
+ *
+ * O tamanho da citacao NAO e julgado aqui: linha honesta pode ser curta
+ * (`db.commit()`), e recusar na forma queimou rodadas inteiras. Quem decide e o
+ * matcher de disco, que exige a linha INTEIRA quando o trecho e curto.
+ */
+export function citationShapeError(entries, campo) {
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return `${campo} is required: list them as {path, line, quote}`;
   }
-  for (const entry of inspected) {
+  for (const entry of entries) {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-      return 'each inspected entry must be an object {path, line, quote}';
+      return `each ${campo} entry must be an object {path, line, quote}`;
     }
     if (typeof entry.path !== 'string' || !entry.path.trim()) {
-      return 'inspected entry needs a non-empty path';
+      return `${campo} entry needs a non-empty path`;
     }
     if (!Number.isInteger(entry.line) || entry.line < 1) {
-      return `inspected entry for ${entry.path} needs a 1-based integer line`;
+      return `${campo} entry for ${entry.path} needs a 1-based integer line`;
     }
     if (typeof entry.quote !== 'string' || !entry.quote.trim()) {
-      return `inspected entry for ${entry.path} needs a verbatim quote of the line`;
+      return `${campo} entry for ${entry.path} needs a verbatim quote of the line`;
     }
   }
   return null;
+}
+
+/** As citacoes batem com o disco? Assincrono; nao julga cobertura nem forma. */
+export async function citationsDiskError(entries, root = process.cwd()) {
+  const porCaminho = new Map(
+    entries.map((entry) => {
+      const path = String(entry.path).split(':')[0].trim();
+      return [path, { ...entry, path }];
+    }),
+  );
+  const checks = await Promise.all(
+    [...porCaminho.values()].map(async (entry) => ({
+      path: entry.path,
+      ok: await quoteMatches(root, entry.path, entry.line, entry.quote),
+    })),
+  );
+  const bogus = checks.filter((check) => !check.ok).map((check) => check.path);
+  return bogus.length > 0
+    ? `quote does not match the file at the given line: ${bogus.slice(0, 3).join(', ')}`
+    : null;
+}
+
+/** Forma da prova. Síncrono, sem tocar o disco. */
+export function inspectedShapeError(value) {
+  return citationShapeError(value.inspected, 'inspected');
 }
 
 /**
@@ -171,15 +204,7 @@ export async function inspectionError(scorecard, changedPaths, root = process.cw
     }
   }
 
-  const checks = await Promise.all(
-    [...byPath.values()].map(async (entry) => ({
-      path: entry.path,
-      ok: await quoteMatches(root, entry.path, entry.line, entry.quote),
-    })),
-  );
-  const bogus = checks.filter((check) => !check.ok).map((check) => check.path);
-  if (bogus.length > 0) {
-    return `quote does not match the file at the given line: ${bogus.slice(0, 3).join(', ')}`;
-  }
+  const diskError = await citationsDiskError(scorecard.inspected, root);
+  if (diskError) return diskError;
   return null;
 }
