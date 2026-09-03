@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, execFile as execFileCallback } from 'node:child_process';
+import { promisify } from 'node:util';
 import { collectOutput } from './lms-process-utils.mjs';
+const execFilePromisificado = promisify(execFileCallback);
 const sourceRoot = process.cwd();
 const trigger = join(sourceRoot, 'scripts', 'lms-reviewer-trigger.sh');
 
@@ -114,6 +116,52 @@ test('blocks after runner failure and prints manual recovery', async () => {
     });
     assert.notEqual(result.code, 0);
     assert.match(`${result.stdout}\n${result.stderr}`, /pnpm lms:reviewer/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('preserves explicit bypass variables', async () => {
+  const { root, runner } = await fixture({ score: 0 });
+  try {
+    const result = await runTrigger({
+      root,
+      runner,
+      extraEnv: { LMS_SKIP: '1', LMS_TEST_RUNNER_MODE: 'fail' },
+    });
+    assert.equal(result.code, 0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// Item (3) do relatorio do fix-review: o contrato do CLI da triagem (exit 10) esta
+// testado, mas o WIRING no shell — set +e, so 10 dispensa, e o runner NAO roda —
+// nao estava. Aqui o diff (HEAD~1..HEAD) e so de documentacao, o scorecard e
+// invalido e o runner fake SAI 9: sem a triagem, o trigger falharia; com ela, sai 0
+// sem tocar o runner.
+test('triagem dispensando (exit 10) encerra o trigger sem chamar o runner', async () => {
+  const { root, runner } = await fixture({ score: 4 });
+  try {
+    await execFilePromisificado('git', ['init', '-q'], { cwd: root });
+    await execFilePromisificado('git', ['config', 'user.email', 'lms@test'], { cwd: root });
+    await execFilePromisificado('git', ['config', 'user.name', 'lms'], { cwd: root });
+    await execFilePromisificado('git', ['add', '.'], { cwd: root });
+    await execFilePromisificado('git', ['commit', '-q', '--allow-empty', '-m', 'base'], { cwd: root });
+    await mkdir(join(root, 'docs'), { recursive: true });
+    await writeFile(join(root, 'docs', 'leia.md'), '# doc\n', 'utf8');
+    await execFilePromisificado('git', ['add', 'docs'], { cwd: root });
+    await execFilePromisificado('git', ['commit', '-q', '-m', 'doc'], { cwd: root });
+
+    const result = await runTrigger({
+      root,
+      runner,
+      extraEnv: { LMS_TEST_RUNNER_MODE: 'fail', LMS_REVIEWER_BASE: 'HEAD~1' },
+    });
+    assert.equal(result.code, 0, `${result.stdout}\n${result.stderr}`);
+    assert.match(result.stderr, /dispensada pela triagem/);
+    // O runner que falha jamais foi chamado: quem encerrou foi a triagem.
+    assert.doesNotMatch(result.stdout, /scorecard accepted/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
