@@ -125,6 +125,23 @@ const execFile = promisify(execFileCallback);
 void _candidatesFrom;
 
 /**
+ * O lote de fixes a re-verificar: linhas ainda nao consumidas, marcadas
+ * fixed/claimed. Marco = da PRIMEIRA linha (cobre o lote inteiro); arquivos =
+ * uniao. null = nada a re-verificar (ou linha sem marco/arquivos).
+ */
+export function loteDeFix(linhas, consumidas = 0) {
+  const rows = (Array.isArray(linhas) ? linhas : []).slice(consumidas);
+  const fixRows = rows.filter((l) => l.outcome === 'fixed' || l.outcome === 'claimed');
+  if (fixRows.length === 0) return null;
+  const marco = String(fixRows[0].marco ?? '').trim();
+  const arquivos = [
+    ...new Set(fixRows.flatMap((l) => l.arquivos ?? [])),
+  ].filter((p) => typeof p === 'string' && p.trim());
+  if (!marco || arquivos.length === 0) return null;
+  return { marco, arquivos, total: rows.length };
+}
+
+/**
  * Roda a re-verificacao sobre o ultimo fix registrado.
  *
  * Entradas: `.lms/last.json` (achados CONFIRMED) + `.lms/fixes.jsonl` (ultima linha
@@ -154,19 +171,23 @@ export async function runReverificacao({
     return { status: 'recusada', motivo, abertos: [], fechados: [] };
   }
 
-  let fix = null;
+  // P2-3 da revisao da Fase 4: runFix grava UMA linha por achado — o diff tem de
+  // cobrir o LOTE inteiro (marco da PRIMEIRA linha do lote), senao os fixes
+  // anteriores somem e a rodada cheia volta a ser obrigatoria. O lote comeca nas
+  // linhas ainda nao consumidas por uma re-verificacao anterior.
+  let linhas = [];
+  let consumidas = 0;
   try {
-    const linhas = (await readFile(join(root, '.lms', 'fixes.jsonl'), 'utf8'))
+    linhas = (await readFile(join(root, '.lms', 'fixes.jsonl'), 'utf8'))
       .trim()
       .split('\n')
       .filter(Boolean)
       .map((linha) => JSON.parse(linha));
-    fix = [...linhas].reverse().find((l) => l.outcome === 'fixed' || l.outcome === 'claimed') ?? null;
-  } catch {
-    fix = null;
-  }
-  if (!fix?.marco) {
-    const motivo = 'sem marco do fix em .lms/fixes.jsonl — rode lms:fix primeiro';
+    consumidas = JSON.parse(await readFile(join(root, '.lms', 'reverificacao.json'), 'utf8')).linhasConsumidas ?? 0;
+  } catch {}
+  const lote = loteDeFix(linhas, consumidas);
+  if (!lote) {
+    const motivo = 'nenhum fix novo a re-verificar (ou linha sem marco/arquivos)';
     console.error(`lms-reverificar: recusada — ${motivo}`);
     return { status: 'recusada', motivo, abertos: [], fechados: [] };
   }
@@ -181,19 +202,18 @@ export async function runReverificacao({
   // O mesmo revisor que abriu o achado re-verifica (spec §3.1).
   const provider = alvos[0].found_by ?? scorecard.reviewer;
 
-  // Diff do fix, limitado aos arquivos das linhas do fix.
-  const arquivosDoFix = fix.arquivos ?? [];
+  // Diff do lote, limitado aos arquivos das linhas do fix.
   let diffTexto = '';
   try {
     const { stdout } = await execFile(
       'git',
-      ['diff', fix.marco, '--', ...arquivosDoFix],
+      ['diff', lote.marco, '--', ...lote.arquivos],
       { cwd: root, maxBuffer: 32 * 1024 * 1024 },
     );
     diffTexto = stdout;
   } catch {}
   // Untracked criados pelo fix nao aparecem no diff: conteudo entra como bloco.
-  for (const caminho of (await naoRastreados(root)).filter((p) => arquivosDoFix.includes(p))) {
+  for (const caminho of (await naoRastreados(root)).filter((p) => lote.arquivos.includes(p))) {
     try {
       const conteudo = await readFile(join(root, caminho), 'utf8');
       diffTexto += `\n--- novo arquivo: ${caminho} ---\n${conteudo}\n`;
@@ -248,7 +268,7 @@ export async function runReverificacao({
   await mkdir(join(root, '.lms'), { recursive: true });
   await writeFile(
     join(root, '.lms', 'reverificacao.json'),
-    `${JSON.stringify({ at: new Date().toISOString(), reviewer: provider, results, abertos, fechados }, null, 2)}\n`,
+    `${JSON.stringify({ at: new Date().toISOString(), reviewer: provider, results, abertos, fechados, linhasConsumidas: linhas.length }, null, 2)}\n`,
     'utf8',
   );
   return { status: 'ok', abertos, fechados, results };

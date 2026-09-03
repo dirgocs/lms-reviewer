@@ -190,3 +190,48 @@ test('runReverificacao: sem marco no fixes.jsonl recusa (Task 4)', async () => {
   assert.equal(r.status, 'recusada');
   assert.match(r.motivo, /marco/i);
 });
+
+// P2-3 da revisao da Fase 4: runFix grava UMA linha por achado; o diff tem de
+// cobrir o LOTE inteiro (marco da PRIMEIRA linha do lote) — com o marco da
+// ultima, os fixes anteriores somem do diff e a rodada cheia volta a ser
+// obrigatoria (o custo que a fase existe para cortar).
+test('loteDeFix: marco da primeira linha e uniao de arquivos (P2-3)', async () => {
+  const { loteDeFix } = await import('./lms-reverificar.mjs');
+  const linhas = [
+    { commit: 'h1', marco: 'sha1', id: 'a1', provider: 'codex', outcome: 'fixed', arquivos: ['a.ts'] },
+    { commit: 'h2', marco: 'sha2', id: 'a2', provider: 'codex', outcome: 'claimed', arquivos: ['b.ts'] },
+    { commit: 'h3', marco: 'sha3', id: 'a3', provider: 'codex', outcome: 'fixed', arquivos: ['c.ts'] },
+  ];
+  const lote = loteDeFix(linhas);
+  assert.equal(lote.marco, 'sha1', 'o marco do lote e o da PRIMEIRA linha');
+  assert.deepEqual(lote.arquivos, ['a.ts', 'b.ts', 'c.ts']);
+  // Linhas ja consumidas por uma re-verificacao anterior ficam fora.
+  const lote2 = loteDeFix(linhas, 2);
+  assert.equal(lote2.marco, 'sha3');
+  assert.deepEqual(lote2.arquivos, ['c.ts']);
+});
+
+test('loteDeFix: claimed sem arquivos, ou linha sem marco, recusa (P2-3)', async () => {
+  const { loteDeFix } = await import('./lms-reverificar.mjs');
+  assert.equal(loteDeFix([{ marco: 'sha1', outcome: 'claimed', arquivos: [] }]), null, 'diff sem pathspec devolveria a arvore inteira');
+  assert.equal(loteDeFix([{ outcome: 'fixed', arquivos: ['a.ts'] }]), null, 'sem marco nao ha como recortar o diff');
+  assert.equal(loteDeFix([{ marco: 'sha9', outcome: 'fixed', arquivos: ['a.ts'] }], 5), null, 'nada novo a re-verificar');
+});
+
+test('runReverificacao consome o lote: segunda chamada sem fix novo recusa (P2-3)', async () => {
+  const { root } = await repoPosFix();
+  const collect = async ({ prompt }) => {
+    if (prompt.includes('DEMOLISH')) {
+      return { kind: 'ok', candidate: { id: 'aaa111', verdict: 'PLAUSIBLE', why: 'nao reproduzi' } };
+    }
+    return { kind: 'ok', candidate: { results: [{ id: 'aaa111', status: 'closed', why: 'x', evidence: 'y' }] } };
+  };
+  const primeira = await runReverificacao({ root, env: {}, collect });
+  assert.equal(primeira.status, 'ok');
+  const registro = JSON.parse(await readFile(join(root, '.lms', 'reverificacao.json'), 'utf8'));
+  assert.equal(registro.linhasConsumidas, 1);
+
+  const segunda = await runReverificacao({ root, env: {}, collect });
+  assert.equal(segunda.status, 'recusada');
+  assert.match(segunda.motivo, /nenhum fix novo/i);
+});
