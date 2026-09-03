@@ -581,6 +581,39 @@ re-revisa aquele caminho primeiro. Tudo em `.lms/fixes.jsonl`.
 **Quem corrigiu sai da revisão daquele diff** (`scripts/lms-fix-autoria.mjs`), por
 arquivo — não o provider inteiro, que em três correções esvaziaria a cadeia.
 
+## Re-verificação incremental (`pnpm lms:reverificar`)
+
+Depois de um fix, acordar a cadeia inteira para reconferir achados que o próprio
+revisor abriu custa 15–30 min; re-verificar custa 2–5. O runner devolve ao **mesmo
+revisor que abriu o achado** (`found_by`) uma pergunta estreita: *estes ids continuam
+abertos?*
+
+Fail-closed em todo caminho: id ausente ou desconhecido na resposta = `open`; `closed`
+só vale depois de o verificador da Fase 2 não o derrubar; `LMS_VERIFY=0` desliga a
+re-verificação inteira (fechar sem contraditório é o buraco). E NUNCA mexe em
+`score`/agregado/`coverage` nem publica scorecard — o aceite final sai só de
+`runFallback` completo. Re-trigger automático pós-fix segue manual por decisão do
+Master (2026-09-02, ideias de Fase 4: fila de re-trigger com humano no laço).
+
+## Classe recorrente vira achado estrutural
+
+A mesma `lens` no mesmo prefixo de diretório (dois segmentos) em **3 rodadas
+consecutivas** deixa de ser coincidência: o runner injeta um P1 sintético cujo
+`acceptance` é o TESTE que fecha a classe (propriedade, paridade ou tabela de
+cobertura). Fix pontual é recusado — o roteamento manda para o orquestrador. O
+sintético é do runner, só acrescenta, e o contraditório pode derrubá-lo como
+qualquer achado. Sintéticos não contam como ocorrência para a própria detecção
+(nunca em deadlock).
+
+## Suíte verde como pré-condição de rodada
+
+A triagem pergunta se o diff merece revisão; nunca se ele está DE PÉ. Com
+`testCommand` em `lms.config.json` (opcional), o degrau roda a suíte ANTES de gastar
+cota: vermelho recusa a rodada (exit 11, nenhum provider invocado, últimas 20 linhas
+no stderr). Falha de ferramenta (comando ausente, timeout) avisa e segue — erro de
+infra nunca decide sozinho. Timeout em GRUPO (`LMS_TEST_TIMEOUT_MS`, default 10 min);
+`LMS_TEST_GATE=0` desliga.
+
 ## Quick invoke
 
 User phrases that should trigger this skill:

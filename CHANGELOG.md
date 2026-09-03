@@ -8,6 +8,36 @@ O que conta como *breaking* aqui: mudar o schema do scorecard, o contrato de
 gate. **Afrouxar o gate é breaking mesmo que nada quebre tecnicamente** — quem instalou
 isto instalou o rigor, e um gate que passa a deixar passar é uma regressão silenciosa.
 
+## [1.3.0] - 2026-09-03
+
+Fase 4: fechamento do laço fix → revisão. Spec e plano em
+`docs/lms-v2/2026-09-03-lms-v2-fase4.md` e `...-fase4-plano.md`.
+
+### Adicionado
+
+- **Suíte verde como pré-condição de rodada** (`testCommand` em `lms.config.json`,
+  opcional) — suíte vermelha recusa a rodada (exit 11, nenhum provider invocado);
+  falha de ferramenta avisa e segue; `LMS_TEST_GATE=0` desliga.
+- **Re-verificação incremental do fix** (`lms-reverificar`, bin `lms-reverificar`) —
+  o mesmo revisor que abriu o achado responde "estes ids continuam abertos?";
+  fail-closed (id ausente/desconhecido = open), `closed` só vale após o verificador
+  da Fase 2, nunca altera score/agregado e nunca publica scorecard.
+- **Classe recorrente vira achado estrutural** — a mesma lens+prefixo em 3 rodadas
+  consecutivas injeta um P1 do runner cujo acceptance é o TESTE da classe; fix
+  pontual é recusado (vai para o orquestrador).
+- **Golden set de evals** (`evals/`, bin `lms-eval`) — recall de P1 real e taxa de
+  falso-positivo conhecido, com pisos (`LMS_EVAL_RECALL_MIN` 0.8, `LMS_EVAL_FP_MAX`
+  0.2). Trocar `reviewPrompt` ou provider exige rodada de eval no CHANGELOG.
+- Sessão tmux reutilizável: prompt/candidato por chamador e `manterJanela`.
+- Linha de `.lms/fixes.jsonl` carrega o `marco`; histórico carrega os achados
+  (`lens`, `path`, `id`) por rodada.
+
+### Corrigido
+
+- Score incoerente com a severidade reprovado no veredito, nomeando o campo
+  (KDT-68: score 4 com p1=5 aceito): P0/P1 CONFIRMED => score <= 3; só P2 => <= 4.
+  PLAUSIBLE não pesa.
+
 ## [1.2.0] - 2026-09-02
 
 Fase 1 (contrato do scorecard), Fase 2 (qualidade do veredito) e Fase 3 (fix mode),
@@ -165,7 +195,6 @@ Primeira versão como repositório próprio. Extraído do `dirgocs/karibu-erp`.
 - `lms.config.json` inválido **não** vira aprovação silenciosa: avisa no stderr e cai
   no default vazio, que é o modo mais restritivo de prompt e não desliga trava nenhuma.
 
-[Unreleased]: https://github.com/dirgocs/lms-reviewer/compare/v1.1.5...HEAD
 [1.1.5]: https://github.com/dirgocs/lms-reviewer/compare/v1.1.4...v1.1.5
 [1.1.4]: https://github.com/dirgocs/lms-reviewer/compare/v1.1.3...v1.1.4
 [1.1.3]: https://github.com/dirgocs/lms-reviewer/compare/v1.1.2...v1.1.3

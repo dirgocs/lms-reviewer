@@ -8,8 +8,8 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 const skill = readFileSync(join(root, 'skills/local-merge-score/SKILL.md'), 'utf8');
 
-test('v1.2 expoe todos os comandos usados pelo consumidor', () => {
-  assert.equal(pkg.version, '1.2.0');
+test('v1.3 expoe todos os comandos usados pelo consumidor', () => {
+  assert.equal(pkg.version, '1.3.0');
   assert.deepEqual(pkg.bin, {
     'lms-trigger': './scripts/lms-reviewer-trigger.sh',
     'lms-reviewer': './scripts/lms-reviewer-spawn.sh',
