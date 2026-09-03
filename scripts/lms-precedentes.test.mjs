@@ -8,8 +8,8 @@ import { lerPrecedentes, registrarPrecedente, TETO_PRECEDENTES } from './lms-pre
 
 async function repoTemporario() {
   const root = await mkdtemp(join(tmpdir(), 'lms-prec-'));
-  // Nota de migracao: .agents/skills/... -> skills/... neste repositorio.
-  await mkdir(join(root, 'skills/local-merge-score/references'), { recursive: true });
+  // Estado de runtime: .lms/ na raiz do checkout consumidor.
+  await mkdir(join(root, '.lms'), { recursive: true });
   return root;
 }
 

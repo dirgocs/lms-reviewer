@@ -14,8 +14,9 @@ import { dirname, join } from 'node:path';
 
 export const TETO_PRECEDENTES = 40;
 
-// Nota de migracao: .agents/skills/... -> skills/... neste repositorio.
-const RELATIVO = 'skills/local-merge-score/references/precedentes.md';
+// Estado de runtime do consumidor, como todo .lms/ — gitignored, o pacote nao
+// embarca corpus: so carrega o arquivo se ele existir.
+const RELATIVO = '.lms/precedentes.md';
 const CABECALHO = [
   '# Precedentes — classes de achado já derrubadas',
   '',
