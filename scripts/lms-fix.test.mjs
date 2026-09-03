@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { fixPrompt } from './lms-fix.mjs';
+import { corrigirAchado, fixPrompt } from './lms-fix.mjs';
+import { collectHeadless, providerConfig } from './lms-reviewer-fallback.mjs';
 
 const achado = {
   id: 'a1', severity: 'P1', path: 'src/a.ts:42',
@@ -28,13 +29,11 @@ test('fixPrompt carrega os criterios de aceite quando existem', () => {
 
 // Task 4 Step 5: o valor destes testes esta em exercitar o git DE VERDADE — a
 // reversao e o comportamento que precisa funcionar quando importa.
-import { mkdtemp, writeFile, readFile } from 'node:fs/promises';
+import { mkdtemp, writeFile, readFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
-
-import { corrigirAchado } from './lms-fix.mjs';
 
 const execFile = promisify(execFileCallback);
 
@@ -99,4 +98,34 @@ test('achado em caminho de risco nem chega a invocar o provider', async () => {
   });
   assert.equal(chamou, false);
   assert.equal(r.outcome, 'skipped');
+});
+
+// P1-1 da revisao da Fase 3: corrigirAchado chamava collect SEM parse — o default
+// so reconhece scorecard, o relato do fix nunca era lido, a prova nunca rodava e
+// todo fix virava claimed. Este teste exercita collectHeadless DE VERDADE.
+test('collectHeadless de verdade: relato parseado e prova executada (P1-1)', async () => {
+  const root = await repoGit();
+  const bin = join(root, 'fake-fix.mjs');
+  await writeFile(bin, `#!/usr/bin/env node
+import fs from 'node:fs';
+fs.writeFileSync('a.ts', 'const original = 2;');
+console.log(JSON.stringify({
+  outcome: 'fixed', what: 'troquei o valor',
+  proof: { command: 'node scripts/prova.mjs', expect: 'pass' },
+}));
+`);
+  await execFile('chmod', ['+x', bin]);
+  await mkdir(join(root, 'scripts'), { recursive: true });
+  await writeFile(join(root, 'scripts', 'prova.mjs'), 'process.exit(0);\n');
+
+  const env = {
+    LMS_CLAUDE_BIN: bin,
+    LMS_REVIEWER_TIMEOUT_SEC: '5',
+  };
+  const config = { ...providerConfig(env), base: 'HEAD' };
+  const r = await corrigirAchado({
+    root, finding: alvo, provider: 'claude', config, env, collect: collectHeadless,
+  });
+  assert.equal(r.outcome, 'fixed', `veio ${r.outcome}: ${r.motivo}`);
+  assert.match(await readFile(join(root, 'a.ts'), 'utf8'), /original = 2/);
 });

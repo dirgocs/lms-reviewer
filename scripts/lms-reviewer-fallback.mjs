@@ -609,7 +609,7 @@ function ownCandidate(value, aceita) {
  * os mesmos providers embrulham as duas coisas do mesmo jeito, e um parser ingênuo
  * para o contraditório o faria falhar ABERTO, mantendo o 5/5 em silêncio.
  */
-function candidatesFrom(value, seen = new Set(), aceita = ehScorecard) {
+export function candidatesFrom(value, seen = new Set(), aceita = ehScorecard) {
   if (value === null || value === undefined) return [];
   if (typeof value === 'string') return candidatesFromText(value, seen, aceita);
   return objectCandidates(value, seen, aceita);

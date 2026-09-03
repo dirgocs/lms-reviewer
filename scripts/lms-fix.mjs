@@ -21,12 +21,28 @@ import { arquivosAlterados, escopoViolado, reverter } from './lms-fix-escopo.mjs
 // abrir uma segunda lista de comandos permitidos seria abrir um segundo caminho
 // para shell arbitrario.
 import {
+  candidatesFrom,
   collectHeadless,
   providerConfig,
   verificarProva,
 } from './lms-reviewer-fallback.mjs';
 
 const execFile = promisify(execFileCallback);
+
+/**
+ * Le o relato do fix com a MESMA varredura dos outros estagios (P1-1 da revisao
+ * da Fase 3): o default do collect so reconhece scorecard, e o relato do fix e
+ * {outcome, what, proof} — sem extrator proprio, o relato era null, a prova era
+ * codigo morto e todo fix virava claimed.
+ */
+function parseRelato(stdout = '', stderr = '') {
+  const aceita = (value) => 'outcome' in value;
+  const candidatos = [
+    ...candidatesFrom(stdout, new Set(), aceita),
+    ...candidatesFrom(stderr, new Set(), aceita),
+  ];
+  return candidatos.at(-1) ?? null;
+}
 
 export function fixPrompt(finding, arquivos) {
   return [
@@ -92,6 +108,7 @@ export async function corrigirAchado({ root, finding, provider, config, env, col
   const saida = await collect({
     root, provider, config, base: config.base, env, modo: 'fix',
     prompt: fixPrompt(finding, arquivos),
+    parse: parseRelato,
   }).catch(() => ({ kind: 'error' }));
 
   const alterados = await arquivosAlterados(root, desde);
