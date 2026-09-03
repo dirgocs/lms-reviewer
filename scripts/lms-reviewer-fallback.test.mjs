@@ -414,18 +414,21 @@ test('verificador serial: veredito do outro achado nao rebaixa o segundo (P1-2)'
     // Revisor emite dois achados PLAUSIBLE (nao bloqueiam a forma). O verificador
     // responde na primeira chamada com veredito cujo id casa com o P0; na segunda,
     // com id errado. Antes do conserto, a mesma resposta rebaixava os dois.
+    // P3-3: o runner DERIVA o id — o teste deriva igual para saber o que casar.
+    const idP0 = findingId({ lens: 'code-safety', path: 'a.ts:1', title: 'P0 de tenant' });
+    const idP2 = findingId({ lens: 'code-quality', path: 'b.ts:1', title: 'P2 cosmético' });
     const achados = [
-      { id: 'bbb111', lens: 'code-safety', severity: 'P0', confidence: 95,
+      { lens: 'code-safety', severity: 'P0', confidence: 95,
         path: 'a.ts:1', title: 'P0 de tenant', why: 'sem escopo', verdict: 'PLAUSIBLE', verdict_by: 'codex' },
-      { id: 'aaa000', lens: 'code-quality', severity: 'P2', confidence: 85,
+      { lens: 'code-quality', severity: 'P2', confidence: 85,
         path: 'b.ts:1', title: 'P2 cosmético', why: 'naming', verdict: 'PLAUSIBLE', verdict_by: 'codex' },
     ];
     let chamadaVerificador = 0;
     const collect = async ({ provider, prompt }) => {
       if (prompt.includes('DEMOLISH')) {
-        // Primeira chamada (P0, id bbb111): veredito casa e rebaixa. Segunda
-        // chamada (P2, id aaa000): veredito com id do P0 — nao pode vazar.
-        const alvo = chamadaVerificador === 0 ? 'bbb111' : 'zzz999';
+        // Primeira chamada (P0): veredito casa e rebaixa. Segunda chamada (P2):
+        // veredito com id do P0 — nao pode vazar.
+        const alvo = chamadaVerificador === 0 ? idP0 : 'zzz999';
         chamadaVerificador += 1;
         return { kind: 'ok', candidate: { id: alvo, verdict: 'PLAUSIBLE', why: 'nao reproduzi' } };
       }
@@ -439,9 +442,9 @@ test('verificador serial: veredito do outro achado nao rebaixa o segundo (P1-2)'
     const gravado = JSON.parse(await readFile(join(root, '.lms', 'last.json'), 'utf8'));
     const porId = new Map(gravado.findings.map((f) => [f.id, f]));
     // O veredito com id certo rebaixa o P0 para PLAUSIBLE.
-    assert.equal(porId.get('bbb111').verdict, 'PLAUSIBLE');
+    assert.equal(porId.get(idP0).verdict, 'PLAUSIBLE');
     // O veredito do P0 nao vaza para o P2: id errado falha fechado.
-    assert.equal(porId.get('aaa000').verdict, 'CONFIRMED');
+    assert.equal(porId.get(idP2).verdict, 'CONFIRMED');
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -1674,9 +1677,10 @@ test('teto de tempo do estagio de verificacao (P2-6)', async () => {
     const r = await runFallback({ root, base, env: { ...env, LMS_VERIFY_BUDGET_MS: '20' }, collect });
     assert.equal(r.ok, true);
     const gravado = JSON.parse(await readFile(join(root, '.lms', 'last.json'), 'utf8'));
-    const porId = new Map(gravado.findings.map((f) => [f.id, f]));
-    assert.equal(porId.get('aaa000').verdict, 'CONFIRMED', 'o primeiro coube no orcamento');
-    assert.match(porId.get('bbb111').verdict_why, /teto de tempo/);
+    // P3-3: o id do achado e derivado pelo runner — asser por titulo.
+    const porTitulo = new Map(gravado.findings.map((f) => [f.title, f]));
+    assert.equal(porTitulo.get('primeiro achado').verdict, 'CONFIRMED', 'o primeiro coube no orcamento');
+    assert.match(porTitulo.get('segundo achado').verdict_why, /teto de tempo/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
