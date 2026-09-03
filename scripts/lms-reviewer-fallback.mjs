@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { collectOutput, matarGrupo } from './lms-process-utils.mjs';
+import { collectOutput, matarGrupo, spawnEmGrupo } from './lms-process-utils.mjs';
 import { appendFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -1378,19 +1378,36 @@ export async function verificarProva(root, prova, env = process.env) {
   if (!comando || !['fail', 'pass'].includes(esperado)) return 'nao-verificavel';
   if (!PROVAS_PERMITIDAS.some((padrao) => padrao.test(comando))) return 'nao-verificavel';
 
-  try {
-    // Roda no MESMO ambiente da revisao: uma prova executada noutro contexto pode
-    // passar ou falhar por motivo que nada tem a ver com o codigo em julgamento.
-    await execFile('sh', ['-c', comando], {
+  // P1-4 da revisao da Fase 3: a prova roda EM GRUPO (spawn detached) — o timeout
+  // do execFile matava so o `sh`, e o runner de teste (pnpm/vitest/node --test)
+  // ficava orfao queimando CPU ate o fim da sessao.
+  const timeoutMs = Number(env?.LMS_PROVA_TIMEOUT_MS) > 0
+    ? Number(env.LMS_PROVA_TIMEOUT_MS)
+    : 10 * 60 * 1000;
+  return new Promise((resolve) => {
+    let timedOut = false;
+    const child = spawnEmGrupo('sh', ['-c', comando], {
       cwd: root,
       env: { ...process.env, ...env },
-      timeout: 10 * 60 * 1000,
-      maxBuffer: 32 * 1024 * 1024,
+      stdio: ['ignore', 'ignore', 'ignore'],
     });
-    return esperado === 'pass' ? 'confirmada' : 'derrubada';
-  } catch {
-    return esperado === 'fail' ? 'confirmada' : 'derrubada';
-  }
+    const encerrar = () => resolve(esperado === 'fail' ? 'confirmada' : 'derrubada');
+    const timer = setTimeout(() => {
+      timedOut = true;
+      matarGrupo(child, 'SIGTERM');
+      setTimeout(() => matarGrupo(child, 'SIGKILL'), 250).unref();
+    }, timeoutMs);
+    child.on('error', () => {
+      clearTimeout(timer);
+      encerrar();
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (timedOut) return encerrar();
+      const passou = code === 0;
+      resolve((esperado === 'pass') === passou ? 'confirmada' : 'derrubada');
+    });
+  });
 }
 
 /**

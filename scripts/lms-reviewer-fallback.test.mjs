@@ -12,6 +12,7 @@ import {
   reportarDesfecho,
   retryPrompt,
   runFallback,
+  verificarProva,
 } from './lms-reviewer-fallback.mjs';
 import { findingId } from './lms-scorecard.mjs';
 
@@ -1621,4 +1622,29 @@ test('refutador do MESMO provider so com opt-in explicito e sem alternativa', as
     escolherRefutador({ ...base, attempts: comGrokVivo, env: { LMS_REFUTADOR_MESMO_PROVIDER: '1' } }),
     'grok',
   );
+});
+
+// P1-4 da revisao da Fase 3: a prova roda EM GRUPO — o timeout que mata so o `sh`
+// deixava o runner de teste (pnpm/vitest) orfao queimando CPU ate o fim da sessao.
+test('verificarProva mata o grupo no timeout — o neto nao sobrevive (P1-4)', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'lms-prova-grupo-'));
+  await mkdir(join(root, 'scripts'), { recursive: true });
+  const alvo = join(root, 'neto-sobreviveu.txt');
+  // A prova (allowlist: node scripts/...) cria um NETO no MESMO grupo (como um
+  // runner de teste real faz) que escreve a sentinela depois de 1.2 s; o pai
+  // fica vivo e o timeout de 300 ms mata o grupo inteiro.
+  await writeFile(join(root, 'scripts', 'neto.mjs'), [
+    "import { spawn } from 'node:child_process';",
+    `spawn('sh', ['-c', 'sleep 1.2 && touch "$ALVO"'], { stdio: 'ignore' });`,
+    'setInterval(() => {}, 1000);',
+  ].join('\n'));
+  const prova = await verificarProva(
+    root,
+    { command: 'node scripts/neto.mjs', expect: 'fail' },
+    { ALVO: alvo, LMS_PROVA_TIMEOUT_MS: '300' },
+  );
+  assert.equal(prova, 'confirmada', 'timeout conta como saida nao-zero (expect fail)');
+  await new Promise((r) => setTimeout(r, 2_000));
+  const sobreviveu = await stat(alvo).then(() => true, () => false);
+  assert.equal(sobreviveu, false, 'neto sobreviveu ao timeout da prova');
 });
