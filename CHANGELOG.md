@@ -8,7 +8,63 @@ O que conta como *breaking* aqui: mudar o schema do scorecard, o contrato de
 gate. **Afrouxar o gate é breaking mesmo que nada quebre tecnicamente** — quem instalou
 isto instalou o rigor, e um gate que passa a deixar passar é uma regressão silenciosa.
 
-## [Unreleased]
+## [1.2.0] - 2026-09-02
+
+Fase 1 (contrato do scorecard), Fase 2 (qualidade do veredito) e Fase 3 (fix mode),
+com as três levas de correção sobre revisão independente. Relatórios completos em
+`docs/lms-v2/` (`2026-09-01-fase1-relatorio.md`, `2026-09-01-fase2-relatorio.md`,
+`2026-09-01-fase3-relatorio.md`, `2026-09-01-fix-review-relatorio.md`,
+`2026-09-01-fix-review-fase3-relatorio.md`); spec e porquê em `docs/lms-v2/2026-09-01-lms-v2.md`.
+
+### Adicionado
+
+- **Scorecard v2** — `coverage` (denominador da varredura), `verified` (asserções
+  positivas com citação conferida no disco), lente inaplicável declarada
+  (`applicable: false` + `na_reason`), achado com `id` estável (ignora a linha),
+  `precondition` e `acceptance`. Schema publicado em
+  `skills/local-merge-score/references/scorecard.schema.json`, sincronizado com o
+  validador por teste.
+- **Retentativa por forma** — saída malformada devolve a mensagem de validação ao
+  provider (uma segunda chance); reprovação legítima segue encerrando a cadeia.
+- **Triagem determinística** (`lms-triage`, exit 10) — diff sem caminho de execução
+  dispensa a cadeia; usa a MESMA regra de isenção do gate (`isExempt` +
+  `lms.config.json`); superfícies sensíveis (gate, CI, migrations, AGENTS.md) sempre
+  revisam.
+- **Effort pelo raio do diff** (`LMS_EFFORT`) — `xhigh` quando toca
+  auth/tenant/fiscal/migrations/signer/webhook/`/pos/`; so o revisor sobe, refutador
+  fica no `LMS_CLAUDE_EFFORT`.
+- **Corpus de precedentes** (`.lms/precedentes.md`, runtime do consumidor) — refutador
+  e verificador alimentam; injetado no prompt de toda revisão, sanitizado e com teto
+  de 40.
+- **Verificação adversarial por achado** — cada achado CONFIRMED vai a um verificador
+  independente que so rebaixa (`CONFIRMED`/`PLAUSIBLE`; `FALSE_POSITIVE` exige prova da
+  allowlist e o teto é `PLAUSIBLE`); `LMS_VERIFY=0` desliga, `LMS_VERIFY_BUDGET_MS`
+  orça o estágio; serial, com id conferido e teto de 5 achados por rodada.
+- **Fix mode** (`LMS_FIX_MODE`, default `off`; `pnpm lms:fix` / bin `lms-fix`) — quem
+  achou corrige numa segunda invocação com sandbox de escrita (`workspace-write`,
+  sem `Bash`); roteamento pela forma do achado; guarda de escopo (untracked/rename
+  visíveis, `.lms/` vigiado por snapshot de conteúdo, violação reverte inteiro);
+  `fixed` ≠ `claimed` (prova pela allowlist `PROVAS_PERMITIDAS`); autoria por arquivo
+  com escopo temporal (expira com o HEAD); `found_by` manda o conserto para quem achou.
+- `lms-fix` exposto no `bin` do pacote.
+
+### Corrigido
+
+- Gate não publica mais scorecard que LISTA achado bloqueante com contadores zerados
+  (contagem e lista reconciliadas pelo veredito).
+- Runner confere `verified` no disco (antes só o gate conferia — a retentativa
+  desperdiçava e o erro aparecia 20 min depois, sem nomear campo).
+- Mensagens de validação nomeiam campo e expectativa; `score` ganhou teto 0-5;
+  `applicable` não-booleano e `lens` desconhecida são reprovados.
+- Prova executável roda em GRUPO de processos — timeout não orfana mais o runner de
+  teste; filhos destacados morrem na saída do runner (Ctrl+C incluso).
+- Marco do fix é SHA imutável (não a ref `HEAD`); `no_change_needed` deixa de ser
+  recusado; denylist do fix cobre `.agents/`, `.claude/` e o pacote instalado.
+- Verificador no tmux recebe onde gravar o veredito (antes imprimia — estágio virava
+  timeout no caminho principal de produção).
+- Regra de tenant fala de `tenantId`/`tenant_id` — `hotel_id` não existe em código
+  nenhum e a guarda de vocabulário varre `skills/` e `hooks/` por glob.
+- Ordenação do output e correções de release: `chore(release): v1.2.0`.
 
 ## [1.1.5] - 2026-09-01
 
