@@ -81,7 +81,7 @@ export function achadoEstrutural(reincidente) {
  * recriado pelo runner a cada rodada — contá-lo como ocorrência manteria a
  * classe reincidente para sempre, em deadlock.
  */
-export async function historicoDeRodadas(root) {
+export async function historicoDeRodadas(root, subject = '') {
   let texto;
   try {
     texto = await readFile(join(root, '.lms', 'history.jsonl'), 'utf8');
@@ -97,11 +97,16 @@ export async function historicoDeRodadas(root) {
     } catch {
       continue;
     }
+    // P2-1 da revisao da Fase 4: recorrência é escopada por subject — rodadas de
+    // outra branch (outro diff) não contam para a série.
+    if (subject && registro.subject !== subject) continue;
     if (!Array.isArray(registro.achados)) continue;
     const achados = registro.achados.filter(
       (a) => typeof a.id !== 'string' || !a.id.startsWith('classe:'),
     );
-    if (achados.length > 0) rodadas.push({ achados });
+    // P1-2 da revisao da Fase 4: rodada limpa (achados []) ENTRA — é ela que
+    // quebra a série. Descartá-la mantinha o sintético bloqueando para sempre.
+    rodadas.push({ achados });
   }
   return rodadas;
 }

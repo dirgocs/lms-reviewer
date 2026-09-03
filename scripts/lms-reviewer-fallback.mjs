@@ -1118,7 +1118,9 @@ export async function attemptProvider({
   // antes do veredito. CONFIRMED, entao a rodada e rejeitada com o campo nomeado
   // e o scorecard gravado bloqueia; o contraditorio pode derruba-lo como
   // qualquer achado. So acrescenta: nunca mexe em score/aggregate/coverage.
-  const reincidentes = classesReincidentes(await historicoDeRodadas(root));
+  // P2-1 da revisao da Fase 4: a recorrência é escopada por subject — rodadas de
+  // outra branch não contam para a série.
+  const reincidentes = classesReincidentes(await historicoDeRodadas(root, rodada.subject));
   for (const reincidente of reincidentes) {
     const sintetico = achadoEstrutural(reincidente);
     console.error(`lms: achado estrutural (classe recorrente): ${sintetico.title}`);
