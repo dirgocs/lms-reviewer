@@ -265,3 +265,38 @@ test('coletaDaReverificacao respeita LMS_REVIEWER_MODE (P2-5)', async () => {
   assert.equal(coletaDaReverificacao({ LMS_REVIEWER_MODE: 'headless' }), collectHeadless);
   assert.equal(coletaDaReverificacao({ LMS_REVIEWER_MODE: 'tmux' }), collectTmux);
 });
+
+// P2-7 da revisao da Fase 4: a re-verificação devolve a pergunta ao MESMO revisor
+// que abriu CADA achado — com achados de dois revisores no scorecard (comum após
+// o contraditório), um collect só entregaria os dois ao primeiro.
+test('cada grupo de found_by re-verifica com o proprio revisor (P2-7)', async () => {
+  const { root } = await repoPosFix();
+  // Segundo achado, aberto por OUTRO revisor.
+  const last = JSON.parse(await readFile(join(root, '.lms', 'last.json'), 'utf8'));
+  last.findings.push({ id: 'bbb222', lens: 'code-quality', severity: 'P2', confidence: 85,
+    path: 'a.ts:2', title: 'nome confuso', why: 'w', verdict: 'CONFIRMED', found_by: 'grok' });
+  await writeFile(join(root, '.lms', 'last.json'), JSON.stringify(last));
+
+  const chamadas = [];
+  const collect = async ({ provider, prompt }) => {
+    if (prompt.includes('still OPEN')) {
+      const idsNoPrompt = (prompt.match(/^id: (\S+)$/gm) ?? []).map((l) => l.slice(4));
+      chamadas.push({ tipo: 'reverif', provider, ids: idsNoPrompt });
+      const results = idsNoPrompt.map((id) => ({ id, status: 'closed', why: 'x', evidence: 'y' }));
+      return { kind: 'ok', candidate: { results } };
+    }
+    // Verificador da Fase 2: ecoa o id do achado e sustenta (nao derruba).
+    // O id que o verificador ecoa vem do bloco JSON do verificarPrompt.
+    const id = (prompt.match(/"id": "([^"]+)"/) ?? [])[1] ?? '???';
+    return { kind: 'ok', candidate: { id, verdict: 'PLAUSIBLE', why: 'nao reproduzi' } };
+  };
+  const r = await runReverificacao({ root, env: {}, collect });
+  assert.equal(r.status, 'ok');
+  assert.deepEqual(r.fechados.sort(), ['aaa111', 'bbb222']);
+
+  const reverifs = chamadas.filter((c) => c.tipo === 'reverif');
+  assert.equal(reverifs.length, 2, 'um collect por grupo de found_by');
+  assert.deepEqual(reverifs.map((c) => c.provider), ['codex', 'grok']);
+  assert.deepEqual(reverifs[0].ids, ['aaa111'], 'o prompt so traz os ids do proprio grupo');
+  assert.deepEqual(reverifs[1].ids, ['bbb222']);
+});

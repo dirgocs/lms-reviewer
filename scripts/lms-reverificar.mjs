@@ -210,8 +210,15 @@ export async function runReverificacao({
     return { status: 'ok', abertos: [], fechados: [], results: [] };
   }
 
-  // O mesmo revisor que abriu o achado re-verifica (spec §3.1).
-  const provider = alvos[0].found_by ?? scorecard.reviewer;
+  // P2-7 da revisao da Fase 4: agrupar por found_by — CADA revisor re-verifica os
+  // proprios achados; um collect so entregaria achados de outros revisores a quem
+  // nunca viu o raciocinio original.
+  const grupos = new Map();
+  for (const finding of alvos) {
+    const quem = finding.found_by ?? scorecard.reviewer;
+    if (!grupos.has(quem)) grupos.set(quem, []);
+    grupos.get(quem).push(finding);
+  }
 
   // Diff do lote, limitado aos arquivos das linhas do fix.
   let diffTexto = '';
@@ -231,32 +238,36 @@ export async function runReverificacao({
     } catch {}
   }
 
-  const prompt = reverificarPrompt(alvos, diffTexto);
-  const saida = await coleta({
-    root,
-    provider,
-    config: providerConfig(env),
-    base: scorecard.base,
-    env,
-    prompt,
-    parse: parseReverificacao,
-    // P2-5: caminhos proprios + janela preservada — a re-verificacao roda na TUI
-    // do mesmo revisor, com o contexto da rodada original.
-    promptPath: join(root, '.lms', 'reverificar-prompt.md'),
-    outPath: join(root, '.lms', 'reverificar.json'),
-    manterJanela: true,
-  }).catch(() => ({ kind: 'error' }));
-  const relato = saida.kind === 'ok' ? saida.candidate : null;
-  const results = Array.isArray(relato?.results) ? relato.results : [];
+  const results = [];
+  const verificados = [];
+  for (const [provider, grupo] of grupos) {
+    const prompt = reverificarPrompt(grupo, diffTexto);
+    const saida = await coleta({
+      root,
+      provider,
+      config: providerConfig(env),
+      base: scorecard.base,
+      env,
+      prompt,
+      parse: parseReverificacao,
+      // P2-5: caminhos proprios + janela preservada — a re-verificacao roda na TUI
+      // do mesmo revisor, com o contexto da rodada original.
+      promptPath: join(root, '.lms', 'reverificar-prompt.md'),
+      outPath: join(root, '.lms', 'reverificar.json'),
+      manterJanela: true,
+    }).catch(() => ({ kind: 'error' }));
+    const relato = saida.kind === 'ok' ? saida.candidate : null;
+    for (const item of (Array.isArray(relato?.results) ? relato.results : [])) {
+      results.push(item);
+    }
 
-  // Achados declarados closed passam pelo verificador da Fase 2 (so rebaixa):
-  // veredito CONFIRMED = o defeito segue vivo = volta a open.
-  const fechadosPeloRelato = results
-    .filter((r) => r.status === 'closed' && alvos.some((a) => a.id === r.id))
-    .map((r) => r.id);
-  let verificados = [];
-  if (fechadosPeloRelato.length > 0) {
-    const mini = { ...scorecard, findings: alvos.filter((a) => fechadosPeloRelato.includes(a.id)) };
+    // Achados declarados closed passam pelo verificador da Fase 2 (so rebaixa):
+    // veredito CONFIRMED = o defeito segue vivo = volta a open.
+    const fechadosPeloRelato = (Array.isArray(relato?.results) ? relato.results : [])
+      .filter((r) => r.status === 'closed' && grupo.some((a) => a.id === r.id))
+      .map((r) => r.id);
+    if (fechadosPeloRelato.length === 0) continue;
+    const mini = { ...scorecard, findings: grupo.filter((a) => fechadosPeloRelato.includes(a.id)) };
     const config = providerConfig(env);
     const verificado = await verificarAchados({
       root,
@@ -273,7 +284,7 @@ export async function runReverificacao({
       attempts: [],
       manterJanela: true,
     });
-    verificados = verificado.findings.map((f) => ({ id: f.id, verdict: f.verdict }));
+    verificados.push(...verificado.findings.map((f) => ({ id: f.id, verdict: f.verdict })));
   }
 
   const aplicado = aplicarReverificacao(scorecard, results, verificados);
@@ -283,7 +294,7 @@ export async function runReverificacao({
   await mkdir(join(root, '.lms'), { recursive: true });
   await writeFile(
     join(root, '.lms', 'reverificacao.json'),
-    `${JSON.stringify({ at: new Date().toISOString(), reviewer: provider, results, abertos, fechados, linhasConsumidas: linhas.length }, null, 2)}\n`,
+    `${JSON.stringify({ at: new Date().toISOString(), reviewer: [...grupos.keys()].join('+'), results, abertos, fechados, linhasConsumidas: linhas.length }, null, 2)}\n`,
     'utf8',
   );
   return { status: 'ok', abertos, fechados, results };
