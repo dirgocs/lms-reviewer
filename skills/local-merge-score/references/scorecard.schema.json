@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dirgocs.dev/schemas/lms-scorecard.schema.json",
+  "title": "LMS scorecard",
+  "description": "Contrato da saida do revisor do LMS (Local Merge Score). O validador executavel e `scripts/lms-scorecard.mjs`; este schema descreve os MESMOS campos. Um scorecard bem formado com score 2 e achados pendentes e uma REPROVACAO legitima, nao saida invalida.",
+  "type": "object",
+  "required": [
+    "reviewer",
+    "score",
+    "target",
+    "base",
+    "p0",
+    "p1",
+    "p2",
+    "lenses",
+    "coverage",
+    "verified",
+    "inspected",
+    "autonomy",
+    "at"
+  ],
+  "properties": {
+    "reviewer": {
+      "description": "Quem produziu o scorecard: claude, grok ou codex.",
+      "enum": ["claude", "grok", "codex"]
+    },
+    "score": { "type": "integer", "description": "Nota final. No gate, so 5/5 publica; `score` tem de atingir o `target`." },
+    "target": { "type": "integer", "description": "Meta da rodada. O gate de publicacao exige target 5 e score >= target." },
+    "base": { "type": "string", "description": "Ref contra o qual o diff foi revisado (ex.: origin/master). O gate confere identidade com a base REAL do push." },
+    "p0": { "type": "integer", "minimum": 0, "description": "Agregado P0. Precisa somar as lentes." },
+    "p1": { "type": "integer", "minimum": 0, "description": "Agregado P1. Precisa somar as lentes." },
+    "p2": { "type": "integer", "minimum": 0, "description": "Agregado P2. Precisa somar as lentes." },
+    "lenses": {
+      "type": "object",
+      "required": ["code-safety", "code-structure", "code-quality", "code-efficiency"],
+      "properties": {
+        "code-safety": { "$ref": "#/$defs/lens" },
+        "code-structure": { "$ref": "#/$defs/lens" },
+        "code-quality": { "$ref": "#/$defs/lens" },
+        "code-efficiency": { "$ref": "#/$defs/lens" }
+      },
+      "additionalProperties": false
+    },
+    "coverage": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/coverage" },
+      "description": "Quanto da superficie foi varrido. {surface, total, inspected}: o denominador que prova que o revisor varreu, nao so abriu algumas rotas."
+    },
+    "verified": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/verified" },
+      "description": "O que o revisor conferiu e considera CORRETO, com citacao verbatim. Alvo barato para o contraditorio: derrubar uma afirmacao custa achar um contraexemplo."
+    },
+    "findings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/finding" },
+      "description": "Achados da rodada. Ausente ou vazio e legitimo — e o 5/5."
+    },
+    "inspected": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/verified" },
+      "description": "Prova de leitura: linhas que o revisor abriu, com citacao conferida no disco pelo gate."
+    },
+    "autonomy": {
+      "description": "Quem revisou. `reviewer` e o padrao; `self` e o autor avaliando o proprio trabalho — aceito, mas o gate declara em voz alta que revisor != autor.",
+      "enum": ["reviewer", "goal", "loop", "manual", "self"]
+    },
+    "fallow": {
+      "description": "Resultado do gate estrutural fallow. `pass`, `warn` e `no-changes` passam; `fail`, ausente ou `skipped` reprovam — declarar `skipped` era forma de nao olhar.",
+      "enum": ["pass", "warn", "no-changes"]
+    },
+    "subject": {
+      "type": "string",
+      "description": "Hash do diff revisado (commits + arvore suja + arquivos novos). Quando nao bate com o estado atual, o parecer e de outro codigo."
+    },
+    "at": { "type": "string", "description": "Timestamp ISO-8601 UTC. Scorecard com mais de 2h esta stale." },
+    "iteration": { "type": "integer", "minimum": 1 },
+    "plateau": { "type": "integer", "minimum": 0 },
+    "max_iterations": { "type": "integer", "minimum": 1 },
+    "graphify": { "type": "string", "description": "Orientacao estrutural da rodada (ex.: oriented)." }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "lens": {
+      "type": "object",
+      "required": ["p0", "p1", "p2"],
+      "properties": {
+        "p0": { "type": "integer", "minimum": 0 },
+        "p1": { "type": "integer", "minimum": 0 },
+        "p2": { "type": "integer", "minimum": 0 },
+        "applicable": { "type": "boolean", "description": "Lente inaplicavel? `{p0:0,p1:0,p2:0}` e ambiguo: limpo ou nao olhei? `applicable: false` + `na_reason` desambigua, e lente inaplicavel nao pode reportar achado." },
+        "na_reason": { "type": "string", "description": "Obrigatorio quando applicable: false. Minimo de 15 caracteres." }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "required": ["surface", "total", "inspected"],
+      "properties": {
+        "surface": { "type": "string", "description": "O que foi varrido (ex.: 'arquivos alterados', 'rotas do envelope')." },
+        "total": { "type": "integer", "minimum": 0 },
+        "inspected": { "type": "integer", "minimum": 0, "description": "Nunca maior que `total`." }
+      }
+    },
+    "verified": {
+      "type": "object",
+      "required": ["path", "line", "quote"],
+      "properties": {
+        "path": { "type": "string" },
+        "line": { "type": "integer", "minimum": 1 },
+        "quote": { "type": "string", "description": "Linha citada verbatim; conferida no disco pelo gate." }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "required": ["severity", "confidence", "path", "title", "why"],
+      "properties": {
+        "severity": { "enum": ["P0", "P1", "P2"] },
+        "confidence": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "path": { "type": "string", "description": "Arquivo e linha do achado (ex.: src/envelope.ts:42)." },
+        "title": { "type": "string" },
+        "why": { "type": "string" },
+        "id": { "type": "string", "description": "Identidade estavel do achado (sha256 de lens+arquivo+titulo, 12 hex). A LINHA fica de fora de proposito: o mesmo defeito depois de o arquivo crescer continua sendo o mesmo defeito." },
+        "precondition": { "type": "string", "description": "Opcional. Separa achado vivo de achado teorico: 'so exploravel com a flag X ligada' muda a severidade." },
+        "acceptance": { "type": "array", "items": { "type": "string" }, "description": "Opcional. O que encerra o achado." }
+      }
+    }
+  },
+  "examples": [
+    {
+      "reviewer": "grok",
+      "score": 5,
+      "target": 5,
+      "base": "origin/master",
+      "iteration": 1,
+      "plateau": 0,
+      "max_iterations": 8,
+      "p0": 0,
+      "p1": 0,
+      "p2": 0,
+      "lenses": {
+        "code-safety": { "p0": 0, "p1": 0, "p2": 0 },
+        "code-structure": { "p0": 0, "p1": 0, "p2": 0 },
+        "code-quality": { "p0": 0, "p1": 0, "p2": 0 },
+        "code-efficiency": { "p0": 0, "p1": 0, "p2": 0 }
+      },
+      "autonomy": "reviewer",
+      "fallow": "pass",
+      "graphify": "oriented",
+      "coverage": [{ "surface": "arquivos alterados", "total": 3, "inspected": 3 }],
+      "verified": [
+        {
+          "claim": "o envelope resolve o tenant a partir do JWT",
+          "path": "a.ts",
+          "line": 1,
+          "quote": "linha citada verbatim"
+        }
+      ],
+      "findings": [],
+      "inspected": [
+        { "path": "a.ts", "line": 1, "quote": "linha citada verbatim" }
+      ],
+      "at": "2026-07-08T20:00:00Z"
+    }
+  ]
+}

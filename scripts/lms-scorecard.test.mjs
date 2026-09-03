@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 
 import { findingId, findingsShapeError, scorecardFormError, validateScorecard } from './lms-scorecard.mjs';
 
@@ -36,6 +37,23 @@ function validScorecard(reviewer = 'grok') {
     inspected: [{ path: 'a.ts', line: 1, quote: 'linha citada verbatim' }],
   };
 }
+
+test('o exemplo do schema publicado passa no validador', async () => {
+  const schema = JSON.parse(
+    await readFile(
+      new URL('../skills/local-merge-score/references/scorecard.schema.json', import.meta.url),
+    ),
+  );
+  const exemplo = schema.examples[0];
+  assert.equal(
+    scorecardFormError(exemplo, {
+      reviewer: exemplo.reviewer,
+      base: exemplo.base,
+      now: Date.parse(exemplo.at) + 1000,
+    }),
+    null,
+  );
+});
 
 test('exige coverage', () => {
   const { coverage: _coverage, ...semCoverage } = validScorecard();

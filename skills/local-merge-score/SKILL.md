@@ -363,6 +363,7 @@ mkdir -p .lms
 
 ```json
 {
+  "reviewer": "grok",
   "score": 5,
   "target": 5,
   "base": "origin/master",
@@ -381,14 +382,34 @@ mkdir -p .lms
   "autonomy": "reviewer",
   "fallow": "pass",
   "graphify": "oriented",
+  "coverage": [{ "surface": "arquivos alterados", "total": 3, "inspected": 3 }],
+  "verified": [
+    {
+      "claim": "o envelope resolve o tenant a partir do JWT",
+      "path": "a.ts",
+      "line": 1,
+      "quote": "linha citada verbatim"
+    }
+  ],
+  "findings": [],
   "inspected": [
-    { "path": "path/from/the/diff.ts", "line": 42, "quote": "export function foo(bar) {" },
-    { "path": "another.ts", "line": 7, "quote": "import { thing } from './thing';" },
-    { "path": "a/third.ts", "line": 130, "quote": "const LIMIT = 12_000;" }
+    { "path": "a.ts", "line": 1, "quote": "linha citada verbatim" }
   ],
   "at": "2026-07-08T20:00:00Z"
 }
 ```
+
+O contrato canônico é [references/scorecard.schema.json](references/scorecard.schema.json),
+mantido em sincronia com `scripts/lms-scorecard.mjs` por teste. Campos novos desta versão:
+
+| Campo | Para quê |
+| --- | --- |
+| `coverage` | Denominador da varredura: `{surface, total, inspected}` por superfície. Distingue "abriu 3 de 45" de "abriu as 45". |
+| `verified` | Asserções positivas com citação conferida no disco. Dá ao contraditório um alvo barato de derrubar. |
+| `lenses.<lente>.applicable` + `na_reason` | Lente que não se aplica se declara, em vez de sair zerada e ambígua. |
+| `findings[].id` | Identidade estável entre iterações (hash de lente + arquivo + título; ignora a linha). |
+| `findings[].precondition` | Condição de explorabilidade. Separa achado vivo de teórico. |
+| `findings[].acceptance` | Critérios verificáveis que provam a correção. |
 
 Use real values and ISO-8601 UTC for `at`. When installed as documented, the Claude
 PreToolUse hook at
