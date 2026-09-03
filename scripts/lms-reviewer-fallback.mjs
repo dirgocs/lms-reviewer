@@ -757,6 +757,9 @@ async function enfileirarP2(root, achados, round, commit) {
   await mkdir(dir, { recursive: true });
   const linhas = achados.map((achado) =>
     JSON.stringify({
+      // P2-5 da revisao da Fase 1: a fila e a UNICA memoria duravel do debito —
+      // sem o id estavel, nao da para dizer se o P2 da rodada N+1 e o mesmo da N.
+      id: achado.id ?? findingId(achado),
       path: achado.path ?? '',
       title: achado.title ?? '',
       lens: achado.lens ?? '',
@@ -777,10 +780,10 @@ async function enfileirarP2(root, achados, round, commit) {
 
 /** Identidade estável de um achado — `structuredClone` cria objetos NOVOS, então
  *  comparar por referência nunca casa (achado da rodada 91: o scorecard aceito
- *  ficava com score 5, p2=0 e os P2 ainda listados em `findings`). */
-function chaveDoAchado(achado) {
-  return `${achado?.path ?? ''}|${achado?.title ?? ''}|${achado?.lens ?? ''}`;
-}
+ *  ficava com score 5, p2=0 e os P2 ainda listados em `findings`).
+ *  P2-5: passou a ser o proprio `findingId` — hash que IGNORA a linha, entao o
+ *  mesmo defeito com o arquivo crescido continua sendo o mesmo debito. */
+const chaveDoAchado = findingId;
 
 /** Rodada P2-only vira aceite: os P2 saem do scorecard (score volta a 5) e a fila registra. */
 function neutralizarP2(scorecard, enfileirados) {

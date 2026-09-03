@@ -13,6 +13,7 @@ import {
   retryPrompt,
   runFallback,
 } from './lms-reviewer-fallback.mjs';
+import { findingId } from './lms-scorecard.mjs';
 
 const base = 'origin/master';
 
@@ -809,7 +810,8 @@ test('com flag P2 do reviewer entra na fila e a rodada aceita', async () => {
       Object.keys(queued).sort(),
       // `why` e `fix` entraram na rodada 90: a fila e a UNICA memoria do debito
       // depois que o achado sai do scorecard, entao a justificativa vai junto.
-      ['commit', 'confidence', 'fix', 'lens', 'path', 'round_id', 'title', 'why'].sort(),
+      // `id` entrou no P2-5 da revisao da Fase 1: identidade estavel entre rodadas.
+      ['commit', 'confidence', 'fix', 'id', 'lens', 'path', 'round_id', 'title', 'why'].sort(),
     );
     assert.equal(queued.path, 'a.ts:1');
     assert.equal(queued.title, 'achado de severidade controlada');
@@ -907,6 +909,9 @@ test('a fila P2 guarda a justificativa e a correcao sugerida', async () => {
     const [queued] = await jsonl(root, 'p2-queue.jsonl');
     assert.equal(queued.why, 'contraditorio encontrou caso de borda ignorado');
     assert.ok('fix' in queued, 'o campo fix acompanha o debito');
+    // P2-5 da revisao da Fase 1: a fila e a memoria duravel do debito, entao carrega
+    // a identidade estavel — hash de lens+arquivo-sem-linha+titulo.
+    assert.equal(queued.id, findingId({ lens: queued.lens, path: queued.path, title: queued.title }));
   } finally {
     await rm(root, { recursive: true, force: true });
   }
