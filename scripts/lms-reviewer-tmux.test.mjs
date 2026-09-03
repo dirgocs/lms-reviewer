@@ -25,7 +25,9 @@ function scorecard(overrides = {}) {
     coverage: [{ surface: 'arquivos alterados', total: 3, inspected: 3 }],
     verified: [{
       claim: 'as funcoes alvo retornam a entrada intacta',
-      path: 'src/um.ts', line: 1, quote: 'export function alvo7(entrada) {',
+      // Citacao REAL de src/um.ts:1 — o runner (P1-2 da revisao da Fase 1) confere
+      // verified no disco, entao a citacao inventada aqui quebraria o aceite.
+      path: 'src/um.ts', line: 1, quote: 'export function alvo9(entrada) {',
     }],
     ...overrides,
   };
@@ -123,6 +125,12 @@ test('refutacao malformada nao derruba: "false" string nao e refutacao', async (
   try {
     await writeFile(join(root, 'mudou.ts'), 'export const alvo = 1;\n', 'utf8');
     const inspected = [{ path: 'mudou.ts', line: 1, quote: 'export const alvo = 1;' }];
+    // verified citando o arquivo que EXISTE neste root (o runner confere verified
+    // no disco — P1-2 da revisao da Fase 1).
+    const verified = [{
+      claim: 'a constante alvo exporta o numero um',
+      path: 'mudou.ts', line: 1, quote: 'export const alvo = 1;',
+    }];
 
     // Um veredito com refuted:"false" (string) e confianca alta: Boolean() frouxo o
     // trataria como refutacao e bloquearia um diff sem defeito apontado.
@@ -130,7 +138,7 @@ test('refutacao malformada nao derruba: "false" string nao e refutacao', async (
       kind: 'ok',
       candidate: prompt.includes('DERRUBAR')
         ? { refuted: 'false', confidence: 99 }
-        : scorecard({ inspected }),
+        : scorecard({ inspected, verified }),
     });
 
     const resultado = await runFallback({

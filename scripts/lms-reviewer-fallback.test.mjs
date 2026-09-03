@@ -289,6 +289,20 @@ test('attemptProvider tenta de novo quando a primeira saida esta malformada', as
   assert.equal(r.accepted, true);
 });
 
+test('attemptProvider retenta quando a citacao de verified e fabricada (P1-2)', async () => {
+  const { root, opcoes, scorecardValido } = await fixture();
+  const fabricado = {
+    ...scorecardValido,
+    verified: [{ claim: 'arquivo inexistente conferido e correto', path: 'nao/existe.ts', line: 1, quote: 'inventado' }],
+  };
+  const saidas = [fabricado, scorecardValido];
+  let chamadas = 0;
+  const collect = async () => ({ kind: 'ok', candidate: saidas[chamadas++] });
+  const r = await attemptProvider({ ...opcoes, root, collect });
+  assert.equal(chamadas, 2, 'citacao fabricada de verified ganha segunda chance');
+  assert.equal(r.accepted, true);
+});
+
 test('attemptProvider NAO tenta de novo quando o scorecard e valido e reprova', async () => {
   const { root, opcoes, scorecardValido } = await fixture();
   let chamadas = 0;

@@ -8,7 +8,12 @@ import { existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 
-import { scorecardError, scorecardFormError, findingId } from './lms-scorecard.mjs';
+import {
+  scorecardError,
+  scorecardFormError,
+  findingId,
+  verifiedDiskError,
+} from './lms-scorecard.mjs';
 import { effortPara } from './lms-effort.mjs';
 import { lerPrecedentes, registrarPrecedente } from './lms-precedentes.mjs';
 import {
@@ -1016,10 +1021,15 @@ export async function attemptProvider({
     scorecard = stampScorecard(result.candidate, provider, fallow, base, { subject, autonomy });
 
     // Primeiro: o provider fez o trabalho? Só a FORMA importa aqui — e "fez o
-    // trabalho" inclui ter aberto arquivos, não só ter emitido JSON.
+    // trabalho" inclui ter aberto arquivos, não só ter emitido JSON. A citacao de
+    // `verified` tambem e conferida NO DISCO aqui (P1-1 da revisao da Fase 1): o
+    // prompt promete "verified on disk just like inspected", e um erro descoberto
+    // so pelo gate depois do aceite desperdicaria a retentativa que existe para
+    // exatamente isto.
     const formError =
       scorecardFormError(scorecard, { reviewer: provider, base, subject }) ??
-      (scorecard ? await inspectionError(scorecard, changedPaths ?? new Set(), root) : null);
+      (scorecard ? await inspectionError(scorecard, changedPaths ?? new Set(), root) : null) ??
+      (scorecard ? await verifiedDiskError(scorecard, root) : null);
     if (formError && tentativa < maxTentativas) {
       await logAttempt(
         root,
