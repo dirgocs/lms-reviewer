@@ -177,9 +177,9 @@ export function promptEstaRodando(pane) {
  * Retentativa 1+ manda so Enter primeiro: se o texto ficou preso na caixa de input
  * (banner engoliu apenas o Enter), submeter o que ja esta la evita duplicar a
  * instrucao. So depois reenvia o texto completo. */
-async function enviarPromptAteEntrar(window, relOut) {
+async function enviarPromptAteEntrar(window, relOut, relPrompt = '.lms/review-prompt.md') {
   const texto =
-    `Leia .lms/review-prompt.md e execute exatamente o que ele pede. ` +
+    `Leia ${relPrompt} e execute exatamente o que ele pede. ` +
     `Grave o JSON que ele especifica em ${relOut} e pare. Nao altere nenhum outro arquivo.`;
   for (let tentativa = 0; tentativa < 3; tentativa += 1) {
     if (tentativa === 0) {
@@ -227,10 +227,36 @@ export function lerCandidato(texto, parse = null) {
   }
 }
 
-async function collectTmux({ root, provider, config, prompt, parse = null }) {
-  const promptPath = join(root, '.lms', 'review-prompt.md');
-  const outPath = join(root, '.lms', 'candidates', `${provider}.json`);
-  const relOut = `.lms/candidates/${provider}.json`;
+/**
+ * Relativo ao root, para o send-keys que aparece na TUI.
+ */
+function relativoAoRoot(caminho, root) {
+  return caminho.startsWith(root + '/') ? caminho.slice(root.length + 1) : caminho;
+}
+
+/**
+ * Caminhos do prompt e do candidato, por CHAMADOR (Fase 4 Task 2): a
+ * re-verificacao roda na mesma janela e nao pode pisar o par da revisao
+ * principal. Defaults = comportamento de hoje.
+ */
+export function caminhosDaColeta(root, provider, { promptPath, outPath } = {}) {
+  return {
+    promptPath: promptPath ?? join(root, '.lms', 'review-prompt.md'),
+    outPath: outPath ?? join(root, '.lms', 'candidates', `${provider}.json`),
+  };
+}
+
+async function collectTmux({
+  root, provider, config, prompt, parse = null,
+  promptPath: promptPathOverride,
+  outPath: outPathOverride,
+  manterJanela = false,
+}) {
+  const { promptPath, outPath } = caminhosDaColeta(root, provider, {
+    promptPath: promptPathOverride,
+    outPath: outPathOverride,
+  });
+  const relOut = relativoAoRoot(outPath, root);
 
   await mkdir(dirname(outPath), { recursive: true });
   await rm(outPath, { force: true });
@@ -266,7 +292,7 @@ async function collectTmux({ root, provider, config, prompt, parse = null }) {
   // teto de 40 min com o prompt perdido. O deadline do candidato so comeca a contar
   // DEPOIS de o prompt comprovadamente entrar; antes disso o tempo era consumido por
   // uma espera que nunca ia produzir nada.
-  const entrou = await enviarPromptAteEntrar(window, relOut);
+  const entrou = await enviarPromptAteEntrar(window, relOut, relPrompt);
   if (!entrou) {
     console.error(`lms-reviewer-tmux: prompt nao entrou na TUI de ${provider} apos 3 tentativas`);
     return { kind: 'timeout' };
@@ -302,11 +328,12 @@ async function collectTmux({ root, provider, config, prompt, parse = null }) {
         leituraAnterior = texto;
         continue;
       }
-      await killWindow(provider);
+      // Fase 4 Task 2: manterJanela preserva a TUI com contexto — a re-verificacao
+      // reusa a sessao em vez de acordar um processo virgem.
+      if (!manterJanela) await killWindow(provider);
       return { kind: 'ok', candidate };
     } catch {
       leituraAnterior = null;
-      continue;
     }
   }
 

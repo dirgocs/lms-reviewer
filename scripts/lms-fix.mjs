@@ -101,7 +101,7 @@ export async function marcoDaArvore(root) {
   return sha.trim();
 }
 
-async function registrar(root, linha) {
+async function registrar(root, linha, marco = "") {
   // P2-2 da revisao da Fase 3: o HEAD do momento vai na linha — e o que delimita
   // a exclusao de autoria no tempo (fix mergeado ha semanas nao exclui ninguem).
   let commit = "";
@@ -112,7 +112,9 @@ async function registrar(root, linha) {
   await mkdir(join(root, ".lms"), { recursive: true });
   await appendFile(
     join(root, ".lms", "fixes.jsonl"),
-    `${JSON.stringify({ commit, ...linha })}\n`,
+    // Fase 4 Task 2: o marco (SHA/stash do momento) e o que permite recortar o
+    // diff do fix — sem ele a re-verificacao nao sabe O QUE re-ler.
+    `${JSON.stringify({ commit, marco, ...linha })}\n`,
     "utf8",
   );
 }
@@ -136,6 +138,7 @@ export async function corrigirAchado({
       arquivos,
       motivo: rota.motivo,
     };
+    // Caminho skipped: nada rodou, marco nao se aplica.
     await registrar(root, linha);
     return linha;
   }
@@ -186,7 +189,7 @@ export async function corrigirAchado({
       arquivos: alterados,
       motivo: violacao,
     };
-    await registrar(root, linha);
+    await registrar(root, linha, desde);
     return linha;
   }
 
@@ -199,7 +202,7 @@ export async function corrigirAchado({
       arquivos: [],
       motivo: relato.what ?? "",
     };
-    await registrar(root, linha);
+    await registrar(root, linha, desde);
     return linha;
   }
 
@@ -225,7 +228,7 @@ export async function corrigirAchado({
     arquivos: outcome === "rejected-scope" ? [] : alterados,
     motivo,
   };
-  await registrar(root, linha);
+  await registrar(root, linha, desde);
   return linha;
 }
 

@@ -319,3 +319,17 @@ test('runFix manda o fix para quem ACHOU o achado (P2-8)', async () => {
   assert.equal(r.aplicados.length, 1);
   assert.deepEqual(providers, ['codex'], 'quem achou corrige');
 });
+
+// Fase 4 Task 2: o marco (SHA/stash do momento) vai na linha — e o que permite a
+// re-verificacao recortar o diff do fix.
+test('linha do fixes.jsonl carrega o marco do fix (Task 2)', async () => {
+  const root = await repoGit();
+  const collect = async () => {
+    await writeFile(join(root, 'a.ts'), 'const original = 2;\n');
+    return { kind: 'ok', candidate: { outcome: 'fixed', what: 'corrigi' } };
+  };
+  await corrigirAchado({ root, finding: alvo, provider: 'grok', config: {}, env: {}, collect });
+  const [linha] = (await readFile(join(root, '.lms', 'fixes.jsonl'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
+  const { stdout } = await execFile('git', ['rev-parse', 'HEAD'], { cwd: root });
+  assert.equal(linha.marco, stdout.trim());
+});

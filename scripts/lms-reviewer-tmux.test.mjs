@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { attemptProvider, reviewPrompt, runFallback, stampScorecard } from './lms-reviewer-fallback.mjs';
-import { lerCandidato, sessionNameFor, tuiCommand } from './lms-reviewer-tmux.mjs';
+import { caminhosDaColeta, lerCandidato, sessionNameFor, tuiCommand } from './lms-reviewer-tmux.mjs';
 
 /** Scorecard bem formado; `inspected` é preenchido pelo teste contra arquivos reais. */
 function scorecard(overrides = {}) {
@@ -256,4 +256,20 @@ test('candidato sai pelo parse do chamador; sem parse, JSON.parse (P3-2)', () =>
 
 test('sem parse, o candidato sai do JSON.parse (comportamento preservado)', () => {
   assert.deepEqual(lerCandidato('{"refuted": false}'), { refuted: false });
+});
+
+// Fase 4 Task 2: prompt/candidato por CHAMADOR — a re-verificacao roda na mesma
+// janela e nao pode pisar o prompt/candidato da revisao principal.
+test('caminhosDaColeta: defaults de hoje preservados e override por chamador (Task 2)', () => {
+  const root = '/repo';
+  const padrao = caminhosDaColeta(root, 'grok');
+  assert.equal(padrao.promptPath, join('/repo', '.lms', 'review-prompt.md'));
+  assert.equal(padrao.outPath, join('/repo', '.lms', 'candidates', 'grok.json'));
+
+  const custom = caminhosDaColeta(root, 'grok', {
+    promptPath: '/repo/.lms/reverificar-prompt.md',
+    outPath: '/repo/.lms/reverificar.json',
+  });
+  assert.equal(custom.promptPath, '/repo/.lms/reverificar-prompt.md');
+  assert.equal(custom.outPath, '/repo/.lms/reverificar.json');
 });
