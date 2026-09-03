@@ -302,6 +302,51 @@ test('attemptProvider NAO tenta de novo quando o scorecard e valido e reprova', 
   assert.equal(r.rejected, true);
 });
 
+test('verificador dentro do runFallback confirma achado que tentou passar como PLAUSIBLE', async () => {
+  const { root, env, scorecardValido } = await fixture();
+  try {
+    // O revisor emite 5/5 com um P1 disfarçado de PLAUSIBLE (nao bloqueia na forma).
+    // O verificador (grok) abre o arquivo, confirma o defeito e o achado volta a
+    // bloquear; o contraditorio (tambem grok) nao derruba o aceite, mas o scorecard
+    // gravado carrega o veredito CONFIRMED com a autoria da verificacao.
+    const achado = {
+      id: 'abc123', lens: 'code-safety', severity: 'P1', confidence: 90,
+      path: 'a.ts:1', title: 'falta filtro de tenant', why: 'a query nao escopa',
+      verdict: 'PLAUSIBLE',
+    };
+    const chamadas = [];
+    const collect = async ({ provider, prompt }) => {
+      chamadas.push({ provider, prompt });
+      if (prompt.includes('DEMOLISH')) {
+        return { kind: 'ok', candidate: { id: 'abc123', verdict: 'CONFIRMED', why: 'abri o arquivo e o defeito esta la' } };
+      }
+      if (provider === 'claude') {
+        return {
+          kind: 'ok',
+          candidate: { ...scorecardValido, findings: [achado] },
+        };
+      }
+      // Contraditorio: olhou e nao derrubou (com prova de leitura).
+      return {
+        kind: 'ok',
+        candidate: { refuted: false, confidence: 0, inspected: provaDeLeituraFixture },
+      };
+    };
+    const r = await runFallback({ root, base, env, collect });
+    assert.equal(r.ok, true);
+    assert.equal(r.acceptedBy, 'claude');
+    assert.equal(r.contestedBy, 'grok');
+    // Tres chamadas: revisor, verificador do achado, contraditorio.
+    assert.equal(chamadas.length, 3);
+    assert.match(chamadas[1].prompt, /falta filtro de tenant/);
+    const gravado = JSON.parse(await readFile(join(root, '.lms', 'last.json'), 'utf8'));
+    assert.equal(gravado.findings[0].verdict, 'CONFIRMED');
+    assert.equal(gravado.findings[0].verdict_by, 'grok');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 async function assertCadeiaCompleta(log) {
   assert.deepEqual((await readFile(log, 'utf8')).trim().split('\n'), ['claude', 'grok', 'codex']);
 }
