@@ -1735,6 +1735,12 @@ async function verificarAchados({
   const aVerificar = porGravidade.slice(0, MAX_VERIFICACOES);
   const excedente = porGravidade.slice(MAX_VERIFICACOES);
 
+  // P2-6 da revisao da Fase 3: a serializacao multiplicou o pior caso do estagio
+  // (5 x BOOT+TIMEOUT do tmux ~ 75 min). Orcamento proprio: estourou, os achados
+  // restantes saem CONFIRMED com motivo de teto — falha fechada, sem espera infinita.
+  const orcamento = Number(env.LMS_VERIFY_BUDGET_MS) > 0 ? Number(env.LMS_VERIFY_BUDGET_MS) : 10 * 60 * 1000;
+  const inicioDoOrcamento = Date.now();
+
   // P1-2 da revisao da Fase 2: SEQUENCIAL, em vez de Promise.all. No caminho de
   // producao (coleta por arquivo/tmux) todas as chamadas com o MESMO provider
   // disputavam o MESMO prompt e o MESMO arquivo de candidato — o ultimo veredito
@@ -1742,6 +1748,7 @@ async function verificarAchados({
   // aplicarVeredito, nao ha cruzamento.
   const verificados = [];
   for (const finding of aVerificar) {
+    if (Date.now() - inicioDoOrcamento >= orcamento) break;
     // P2-4: o historico da rodada vale aqui tambem — provider que nem rodou nao
     // verifica (cada tentativa paga o timeout inteiro e produz "sem segunda
     // opiniao" com carimbo de verificacao).
@@ -1787,11 +1794,12 @@ async function verificarAchados({
     verificados.push(resultado);
   }
 
-  const naoVerificados = excedente.map((finding) => ({
+  const verificadosIds = new Set(verificados.map((f) => f.id));
+  const naoVerificados = [...excedente, ...aVerificar.filter((f) => !verificadosIds.has(f.id))].map((finding) => ({
     ...finding,
     verdict: 'CONFIRMED',
     verdict_by: null,
-    verdict_why: `nao verificado (teto de ${MAX_VERIFICACOES} por rodada)`,
+    verdict_why: `nao verificado (teto de ${MAX_VERIFICACOES} por rodada ou teto de tempo)`,
   }));
 
   return { ...scorecard, findings: [...verificados, ...naoVerificados] };

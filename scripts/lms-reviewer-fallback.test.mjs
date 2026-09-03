@@ -1648,3 +1648,36 @@ test('verificarProva mata o grupo no timeout — o neto nao sobrevive (P1-4)', a
   const sobreviveu = await stat(alvo).then(() => true, () => false);
   assert.equal(sobreviveu, false, 'neto sobreviveu ao timeout da prova');
 });
+
+// P2-6 da revisao da Fase 3: a serializacao multiplicou o pior caso do estagio
+// (5 x BOOT+TIMEOUT do tmux). Orcamento proprio: estourou, o restante sai
+// CONFIRMED com motivo de teto — mesmo tratamento do excedente de MAX_VERIFICACOES.
+test('teto de tempo do estagio de verificacao (P2-6)', async () => {
+  const { root, env, scorecardValido } = await fixture();
+  try {
+    const achados = [
+      { id: 'aaa000', lens: 'code-safety', severity: 'P1', confidence: 90,
+        path: 'a.ts:1', title: 'primeiro achado', why: 'w', verdict: 'PLAUSIBLE', verdict_by: 'codex' },
+      { id: 'bbb111', lens: 'code-quality', severity: 'P2', confidence: 85,
+        path: 'b.ts:1', title: 'segundo achado', why: 'w', verdict: 'PLAUSIBLE', verdict_by: 'codex' },
+    ];
+    const collect = async ({ provider, prompt }) => {
+      if (prompt.includes('DEMOLISH')) {
+        await new Promise((r) => setTimeout(r, 60)); // cada verificacao custa 60ms
+        return { kind: 'ok', candidate: { id: 'x', verdict: 'CONFIRMED', why: 'reproduzi' } };
+      }
+      if (provider === 'claude') {
+        return { kind: 'ok', candidate: { ...scorecardValido, findings: achados } };
+      }
+      return { kind: 'ok', candidate: { refuted: false, confidence: 0, inspected: provaDeLeituraFixture } };
+    };
+    const r = await runFallback({ root, base, env: { ...env, LMS_VERIFY_BUDGET_MS: '20' }, collect });
+    assert.equal(r.ok, true);
+    const gravado = JSON.parse(await readFile(join(root, '.lms', 'last.json'), 'utf8'));
+    const porId = new Map(gravado.findings.map((f) => [f.id, f]));
+    assert.equal(porId.get('aaa000').verdict, 'CONFIRMED', 'o primeiro coube no orcamento');
+    assert.match(porId.get('bbb111').verdict_why, /teto de tempo/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
