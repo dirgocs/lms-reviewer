@@ -227,6 +227,29 @@ export function findingsShapeError(value) {
 const MIN_CLAIM_LENGTH = 20;
 
 /**
+ * Score coerente com a severidade declarada (Task extra da Fase 4, KDT-68).
+ *
+ * A fonte e a LISTA quando ela existe (os achados passaram pelo contraditório); a
+ * lista vazia deixa o agregado falar. PLAUSIBLE nao pesa: rebaixado pelo
+ * verificador é backlog — nao bloqueia nem pontua.
+ */
+function scoreCoerenteError(value) {
+  const findings = Array.isArray(value.findings) ? value.findings : [];
+  const confirmados = findings.filter((f) => (f.verdict ?? 'CONFIRMED') === 'CONFIRMED');
+  const temP01 = confirmados.some((f) => f.severity === 'P0' || f.severity === 'P1')
+    || (findings.length === 0 && (value.p0 > 0 || value.p1 > 0));
+  if (temP01 && value.score > 3) {
+    return `score must be <= 3 while confirmed P0/P1 findings remain (score=${value.score}, p0=${value.p0}, p1=${value.p1})`;
+  }
+  const temP2 = confirmados.some((f) => f.severity === 'P2')
+    || (findings.length === 0 && value.p2 > 0);
+  if (temP2 && value.score > 4) {
+    return `score must be <= 4 while confirmed P2 findings remain (score=${value.score}, p2=${value.p2})`;
+  }
+  return null;
+}
+
+/**
  * O que o revisor conferiu e considera CORRETO, com citacao.
  *
  * Existe para dar ao contraditorio algo barato de atacar. Provar ausencia de bug e
@@ -414,7 +437,16 @@ export function scorecardError(value, {
 } = {}) {
   const formError = scorecardFormError(value, { reviewer, base, subject, now, maxAgeSec });
   if (formError) return formError;
-  return firstError([scoreTargetError(value), verdictFindingsError(value), fallowError(value)]);
+  // Task extra da Fase 4 (KDT-68, LMS 1.2.0): score precisa ser coerente com a
+  // severidade declarada — grok publicou score 4 com p1=5. O agregado e o que o
+  // scorecard PUBLICA e tem de pesar: P0/P1 em aberto => score <= 3; so P2 => <= 4.
+  // Mensagem nomeia score e contadores — quem le o erro corrige o campo.
+  return firstError([
+    scoreCoerenteError(value),
+    scoreTargetError(value),
+    verdictFindingsError(value),
+    fallowError(value),
+  ]);
 }
 
 export function validateScorecard(value, options = {}) {

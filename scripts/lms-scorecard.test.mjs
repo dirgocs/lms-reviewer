@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-import { coverageDiffError, findingsShapeError, findingId, scorecardFormError, validateScorecard } from './lms-scorecard.mjs';
+import { coverageDiffError, findingsShapeError, findingId, scorecardError, scorecardFormError, validateScorecard } from './lms-scorecard.mjs';
 
 const now = Date.parse('2026-07-10T00:00:00.000Z');
 const options = {
@@ -307,4 +307,52 @@ test('exige uma superficie que cubra o diff (P2-4)', () => {
   assert.match(coverageDiffError(card, new Set(['a.ts', 'b.ts', 'c.ts'])), /3 changed file/);
   assert.equal(coverageDiffError(validScorecard(), new Set(['a.ts', 'b.ts', 'c.ts'])), null);
   assert.equal(coverageDiffError(validScorecard(), new Set()), null);
+});
+
+// Task extra da Fase 4 (KDT-68, LMS 1.2.0): score precisa ser coerente com a
+// severidade — grok devolveu score 4 com p1=5 e o validador de forma aceitou,
+// queimando a cadeia em vez de devolver o erro nomeado para a retentativa.
+test('score 4 com p1=5 CONFIRMED reprovado nomeando o campo (KDT-68)', () => {
+  const card = { ...validScorecard(), score: 4, p1: 5 };
+  card.lenses['code-safety'] = { p0: 0, p1: 3, p2: 0 };
+  card.lenses['code-quality'] = { p0: 0, p1: 2, p2: 0 };
+  card.findings = Array.from({ length: 5 }, (_, i) => ({
+    id: `k${i}`, lens: 'code-safety', severity: 'P1', confidence: 90,
+    path: `a.ts:${i + 1}`, title: `achado ${i}`, why: 'w',
+  }));
+  // A regra vive no VEREDITO (scorecardError): na forma, rejeitar deixaria o
+  // proximo provider publicar 5/5 limpo e o P1 gravado se perderia.
+  assert.match(scorecardError(card, options), /score must be <= 3/);
+  assert.match(scorecardError(card, options), /p1=5/);
+});
+
+test('score 5 com P2 CONFIRMED reprovado nomeando p2 (Task extra)', () => {
+  const card = { ...validScorecard(), score: 5, p2: 1 };
+  card.lenses['code-quality'] = { p0: 0, p1: 0, p2: 1 };
+  card.findings = [{ id: 'x', lens: 'code-quality', severity: 'P2', confidence: 90,
+    path: 'a.ts:1', title: 't', why: 'w' }];
+  assert.match(scorecardError(card, options), /score must be <= 4/);
+  assert.match(scorecardError(card, options), /p2=1/);
+});
+
+test('score coerente com a severidade passa na forma (Task extra)', () => {
+  const card3 = { ...validScorecard(), score: 3, p1: 1 };
+  card3.lenses['code-safety'] = { p0: 0, p1: 1, p2: 0 };
+  card3.findings = [{ id: 'x', lens: 'code-safety', severity: 'P1', confidence: 90,
+    path: 'a.ts:1', title: 't', why: 'w' }];
+  assert.equal(scorecardFormError(card3, options), null);
+
+  const card4 = { ...validScorecard(), score: 4, p2: 1 };
+  card4.lenses['code-quality'] = { p0: 0, p1: 0, p2: 1 };
+  card4.findings = [{ id: 'x', lens: 'code-quality', severity: 'P2', confidence: 90,
+    path: 'a.ts:1', title: 't', why: 'w' }];
+  assert.equal(scorecardFormError(card4, options), null);
+});
+
+test('PLAUSIBLE nao pesa no score — backlog nao pontua (Task extra)', () => {
+  const card = { ...validScorecard(), score: 5, p1: 1 };
+  card.lenses['code-safety'] = { p0: 0, p1: 1, p2: 0 };
+  card.findings = [{ id: 'x', lens: 'code-safety', severity: 'P1', confidence: 85,
+    path: 'a.ts:1', title: 't', why: 'w', verdict: 'PLAUSIBLE', verdict_by: 'codex' }];
+  assert.equal(scorecardFormError(card, options), null);
 });

@@ -255,6 +255,29 @@ e `lms-reviewer-trigger.sh` (degrau de teste, exit 11).
   publica, sintético só acrescenta, pré-rodada é opcional por config).
 - [ ] **Step 2: `pnpm test` verde; commit** — `docs(lms): documenta re-verificacao, classe recorrente e pre-rodada (1.3.0)`.
 
+### Task 9 (extra — evidência KDT-68, LMS 1.2.0): Score coerente com a severidade
+
+**Evidência real (2026-09-03):** o grok devolveu scorecard com `score: 4` e `p1: 5` e o
+validador de FORMA aceitou — o runner queimou a cadeia inteira em vez de devolver o erro
+nomeado para a retentativa.
+
+**Files:**
+- Modify: `scripts/lms-scorecard.mjs` (`scoreCoerenteError` no `firstError` de
+  `scorecardFormError`, depois de `findingsShapeError`)
+- Modify: `scripts/lms-scorecard.test.mjs`
+
+**Regra:** achado CONFIRMED (ou sem `verdict`, que é CONFIRMED) pesa no score:
+qualquer P0/P1 → `score <= 3`; só P2 → `score <= 4`. PLAUSIBLE (rebaixado pelo
+verificador) não pesa — backlog não bloqueia nem pontua (preserva o F2-P1-3).
+Mensagem nomeia `score` e o contador em aberto.
+
+- [ ] **Step 1: Testes que falham** — score 4 + `p1: 5` (CONFIRMED) reprovado nomeando
+  `p1`; score 5 + P2 CONFIRMED reprovado nomeando `p2`; score 3 + P1 CONFIRMED passa na
+  forma; PLAUSIBLE não pesa.
+- [ ] **Step 2: Rodar e ver falhar.**
+- [ ] **Step 3: Implementar** `scoreCoerenteError`.
+- [ ] **Step 4: `pnpm test` verde; commit** — `fix(lms): score incoerente com a severidade e reprovado na forma, nomeando o campo`.
+
 ---
 
 ## Fim da Fase 4
