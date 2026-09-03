@@ -13,7 +13,7 @@
  * Exit 1 abaixo dos pisos (`LMS_EVAL_RECALL_MIN` 0.8, `LMS_EVAL_FP_MAX` 0.2).
  */
 import { execFile as execFileCallback } from 'node:child_process';
-import { mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -63,10 +63,14 @@ export async function carregarCasos(dir) {
  * contam FP — reportar classe já derrubada é falso-positivo, não rigor.
  */
 export function compararAchados(esperado, obtidos) {
-  const obtidosNorm = (Array.isArray(obtidos) ? obtidos : []).map((f) => ({
-    lens: f.lens ?? '',
-    path: pathSemLinha(f.path),
-  }));
+  // P3-1 da revisao da Fase 4: recall casa apenas achado P1 — um P3 de estilo no
+  // mesmo arquivo/lente nao conta como se o P1 esperado tivesse sido achado.
+  const obtidosNorm = (Array.isArray(obtidos) ? obtidos : [])
+    .filter((f) => f.severity === 'P1')
+    .map((f) => ({
+      lens: f.lens ?? '',
+      path: pathSemLinha(f.path),
+    }));
   const casa = (alvo) =>
     obtidosNorm.some(
       (o) => o.lens === alvo.lens && o.path === pathSemLinha(alvo.path),
@@ -77,18 +81,20 @@ export function compararAchados(esperado, obtidos) {
   for (const alvo of esperadosP1) {
     if (casa(alvo)) encontrados += 1;
   }
-  const fpsEncontrados = (esperado.fp_conhecidos ?? []).filter(casa).length;
+  const fpsConhecidos = esperado.fp_conhecidos ?? [];
+  const fpsEncontrados = fpsConhecidos.filter(casa).length;
   const totalEsperado = esperadosP1.length;
-  const totalReportado = obtidosNorm.length;
+  // P3-5 da revisao da Fase 4: denominador = fp_conhecidos do corpus. O total
+  // reportado dilui com ruido: 20 achados quaisquer + o FP ficava em 0.05.
+  const taxaFp = fpsConhecidos.length > 0 ? fpsEncontrados / fpsConhecidos.length : 0;
 
   return {
     recall_p1: totalEsperado > 0 ? encontrados / totalEsperado : 1,
-    taxa_fp: totalReportado > 0 ? fpsEncontrados / totalReportado : 0,
+    taxa_fp: taxaFp,
     encontrados,
     total_esperado: totalEsperado,
     fps_encontrados: fpsEncontrados,
-    total_reportado: totalReportado,
-    por_caso: [{ recall_p1: totalEsperado > 0 ? encontrados / totalEsperado : 1, taxa_fp: totalReportado > 0 ? fpsEncontrados / totalReportado : 0 }],
+    total_reportado: obtidosNorm.length,
   };
 }
 
@@ -139,6 +145,9 @@ export async function runEval({ dir, env = process.env, collect = collectHeadles
     const comparacao = compararAchados(caso.esperado, findings);
     porCaso.push({ slug: caso.slug, ...comparacao });
     comparacoes.push(comparacao);
+    // P3-2 da revisao da Fase 4: cada caso cria um repo git em /tmp — sem o rm,
+    // cada rodada de eval deixava N repos para tras.
+    await rm(root, { recursive: true, force: true });
   }
 
   const { recall_p1, taxa_fp } = aggregate(comparacoes);

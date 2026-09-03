@@ -36,15 +36,18 @@ test('compararAchados: recall e FP sobre o corpus (Task 7)', () => {
     ],
     fp_conhecidos: [{ lens: 'code-safety', path: 'src/webhooks/handler.ts' }],
   };
-  // Achou o primeiro e o FP; perdeu o segundo.
+  // P3-1 da revisao da Fase 4: recall casa apenas achado P1 — um P3 de estilo no
+  // mesmo arquivo/lente nao conta como se o P1 tivesse sido achado.
+  // P3-5: taxa_fp tem por denominador o fp_conhecidos do corpus, nao o total
+  // reportado (que dilui com ruido).
   const obtidos = [
-    { lens: 'code-safety', path: 'src/pos/emissao.ts:88' },
-    { lens: 'code-safety', path: 'src/webhooks/handler.ts:10' },
+    { lens: 'code-safety', path: 'src/pos/emissao.ts:88', severity: 'P1' },
+    { lens: 'code-structure', path: 'src/pos/preview.ts:1', severity: 'P3' },
+    { lens: 'code-safety', path: 'src/webhooks/handler.ts:10', severity: 'P1' },
   ];
   const r = compararAchados(esperado, obtidos);
-  assert.equal(r.recall_p1, 0.5);
-  assert.equal(r.taxa_fp, 0.5); // 1 FP em 2 achados reportados
-  assert.equal(r.por_caso.length, 1);
+  assert.equal(r.recall_p1, 0.5, 'P3 de estilo nao conta como P1 achado');
+  assert.equal(r.taxa_fp, 1); // 1 de 1 fp_conhecido apareceu
 });
 
 test('abaixoDosPisos: pisos por env com defaults 0.8/0.2 (Task 7)', () => {

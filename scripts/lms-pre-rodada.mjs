@@ -56,7 +56,13 @@ export async function runPreRodada({ root = process.cwd(), env = process.env, co
       env: { ...process.env, ...env },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
-    const acumular = (chunk) => { saidaBruta += chunk; };
+    // P3-3 da revisao da Fase 4: so as ultimas ~200 linhas interessam (o exit 11
+    // imprime a cauda) — suíte verbosa ou em loop nao acumula memoria sem teto.
+    const acumular = (chunk) => {
+      saidaBruta += chunk;
+      const linhas = saidaBruta.split('\n');
+      if (linhas.length > 400) saidaBruta = linhas.slice(-200).join('\n');
+    };
     child.stdout.on('data', acumular);
     child.stderr.on('data', acumular);
     const timer = setTimeout(() => {
