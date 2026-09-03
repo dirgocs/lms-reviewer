@@ -10,6 +10,7 @@ import { randomUUID } from 'node:crypto';
 
 import { scorecardError, scorecardFormError, findingId } from './lms-scorecard.mjs';
 import { effortPara } from './lms-effort.mjs';
+import { lerPrecedentes, registrarPrecedente } from './lms-precedentes.mjs';
 import { reviewSubject } from './lms-subject.mjs';
 import { inspectionError } from './lms-inspection.mjs';
 import { loadConfig, projectRoot } from './lms-config.mjs';
@@ -342,6 +343,7 @@ export function reviewPrompt(
   _reviewer = '<claude|grok|codex>',
   changed = '',
   outputPath = '',
+  precedentes = [],
 ) {
   // O contrato tem de ser LITERAL. A versão anterior pedia "um JSON com reviewer,
   // score, target, base..." em prosa, e os três providers falhavam na validação:
@@ -421,6 +423,16 @@ export function reviewPrompt(
     '',
     ...regraMigrationAplicada(),
     '',
+    ...(precedentes.length
+      ? [
+          '--- PRECEDENTES: classes ja derrubadas em revisoes anteriores ---',
+          'Nao reporte estas classes. Se achar que um caso e excecao ao precedente,',
+          'diga POR QUE ele e diferente dentro do campo "why" — sem isso, o achado cai.',
+          ...precedentes,
+          '--- END ---',
+          '',
+        ]
+      : []),
     'Scoring: count only findings with confidence >= 80 that this diff introduced.',
     'Score 5 means zero actionable findings. If you find real problems, report them and',
     'score below 5 — a low score is a valid, expected answer and blocks publication.',
@@ -1727,6 +1739,16 @@ async function contestar({
     };
   }
 
+  // Refutacao vencedora vira precedente: a proxima rodada nao re-litiga a classe.
+  // Registrar so quando derrubou de fato — refutacao nao comprovada nao ensina nada.
+  if (derrubouEfetivo && veredito?.title) {
+    await registrarPrecedente(root, {
+      classe: veredito.title,
+      motivo: veredito.why ?? 'derrubado pelo contraditorio',
+      origem: `${refutador} ${new Date().toISOString().slice(0, 10)}`,
+    });
+  }
+
   // O 5/5 vira 4 com o achado somado e o scorecard gravado passa a BLOQUEAR: deixar
   // o aceite no disco liberaria o push seguinte e a refutacao seria decorativa.
   await writeScorecard(
@@ -1849,6 +1871,8 @@ export async function runFallback({
   } = await diffContext(root, resolvedBase);
   // Raio do diff define a profundidade: effort so o REVISOR sobe com o grafo.
   const config = providerConfig(env, { paths: [...changedPaths] });
+  // Memoria de falso-positivo: lida uma vez, entra no prompt de todo revisor.
+  const precedentes = await lerPrecedentes(root);
   const fallow = await fallowVerdict(root);
   const subject = await reviewSubject(root, resolvedBase);
   const round = {
@@ -1877,7 +1901,7 @@ export async function runFallback({
   for (const provider of ordem) {
     // Prompt por provider: o validador exige `reviewer` igual ao nome do provider,
     // então o prompt tem de dizer qual string usar.
-    const prompt = reviewPrompt(resolvedBase, provider, changed, outputPathFor(provider));
+    const prompt = reviewPrompt(resolvedBase, provider, changed, outputPathFor(provider), precedentes);
     const attempt = await attemptProvider({
       root,
       provider,
