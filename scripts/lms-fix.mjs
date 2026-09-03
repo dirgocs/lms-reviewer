@@ -278,7 +278,10 @@ export async function runFix({
       await corrigirAchado({
         root,
         finding,
-        provider: scorecard.reviewer,
+        // P2-8 da revisao da Fase 3: quem ACHOU corrige — achados do contraditorio
+        // carregam found_by, e mandar o conserto para o reviewer do scorecard seria
+        // quem NAO achou corrigindo a partir de resumo em prosa.
+        provider: finding.found_by ?? scorecard.reviewer,
         config,
         env,
         collect,

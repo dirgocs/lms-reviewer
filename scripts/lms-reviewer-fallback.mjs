@@ -1317,6 +1317,9 @@ export function applyRefutation(scorecard, refutation, contexto = {}) {
         title: achado.title ?? 'refutacao do contraditorio',
         why: achado.why ?? '',
         refutedBy: refutation.refutedBy,
+        // P2-8 da revisao da Fase 3: quem ACHOU corrige — o fix precisa saber
+        // que este achado nasceu do refutador, nao do reviewer do scorecard.
+        found_by: refutation.refutedBy,
       },
     ];
   }

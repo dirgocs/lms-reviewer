@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { corrigirAchado, fixPrompt } from "./lms-fix.mjs";
+import { corrigirAchado, fixPrompt, runFix } from "./lms-fix.mjs";
 import { collectHeadless, providerConfig } from "./lms-reviewer-fallback.mjs";
 
 const achado = {
@@ -296,4 +296,26 @@ test('no_change_needed COM alteracoes continua sujeito a guarda (P2-3)', async (
   };
   const r = await corrigirAchado({ root, finding: alvo, provider: 'grok', config: {}, env: {}, collect });
   assert.equal(r.outcome, 'rejected-scope', 'declarar que nao mudou nada nao autoriza mudar');
+});
+
+// P2-8 da revisao da Fase 3: o scorecard publicado inclui achados que o
+// CONTRADITORIO trouxe — mandar o conserto para o reviewer do scorecard seria
+// quem NAO achou corrigindo a partir de resumo em prosa.
+test('runFix manda o fix para quem ACHOU o achado (P2-8)', async () => {
+  const root = await repoGit();
+  await mkdir(join(root, '.lms'), { recursive: true });
+  await writeFile(join(root, '.lms', 'last.json'), JSON.stringify({
+    reviewer: 'grok',
+    base: 'HEAD',
+    findings: [{ ...alvo, found_by: 'codex' }],
+  }));
+  const providers = [];
+  const collect = async ({ provider }) => {
+    providers.push(provider);
+    await writeFile(join(root, 'a.ts'), 'const original = 2;\n');
+    return { kind: 'ok', candidate: { outcome: 'fixed', what: 'corrigi' } };
+  };
+  const r = await runFix({ root, env: { LMS_FIX_MODE: 'reviewer' }, collect });
+  assert.equal(r.aplicados.length, 1);
+  assert.deepEqual(providers, ['codex'], 'quem achou corrige');
 });
