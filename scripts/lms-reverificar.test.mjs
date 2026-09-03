@@ -235,3 +235,33 @@ test('runReverificacao consome o lote: segunda chamada sem fix novo recusa (P2-3
   assert.equal(segunda.status, 'recusada');
   assert.match(segunda.motivo, /nenhum fix novo/i);
 });
+
+// P2-5 da revisao da Fase 4: manterJanela era codigo morto — nenhum chamador
+// passava, e o bin lms-reverificar sempre rodava headless. A re-verificacao roda
+// na TUI (modo padrao) com manterJanela e caminhos proprios; headless so com a
+// env explícita.
+test('re-verificacao usa coleta tmux com manterJanela e caminhos proprios (P2-5)', async () => {
+  const { root } = await repoPosFix();
+  const opcoesVistas = [];
+  const collect = async (opcoes) => {
+    opcoesVistas.push(opcoes);
+    if (opcoes.prompt.includes('DEMOLISH')) {
+      return { kind: 'ok', candidate: { id: 'aaa111', verdict: 'PLAUSIBLE', why: 'nao reproduzi' } };
+    }
+    return { kind: 'ok', candidate: { results: [{ id: 'aaa111', status: 'closed', why: 'x', evidence: 'y' }] } };
+  };
+  await runReverificacao({ root, env: {}, collect });
+  const reverif = opcoesVistas.find((o) => o.prompt.includes('still OPEN'));
+  assert.equal(reverif.manterJanela, true);
+  assert.match(reverif.promptPath, /reverificar-prompt\.md$/);
+  assert.match(reverif.outPath, /reverificar\.json$/);
+});
+
+test('coletaDaReverificacao respeita LMS_REVIEWER_MODE (P2-5)', async () => {
+  const { coletaDaReverificacao } = await import('./lms-reverificar.mjs');
+  const { collectHeadless } = await import('./lms-reviewer-fallback.mjs');
+  const { collectTmux } = await import('./lms-reviewer-tmux.mjs');
+  assert.equal(coletaDaReverificacao({}), collectTmux, 'tmux e o modo padrao de producao');
+  assert.equal(coletaDaReverificacao({ LMS_REVIEWER_MODE: 'headless' }), collectHeadless);
+  assert.equal(coletaDaReverificacao({ LMS_REVIEWER_MODE: 'tmux' }), collectTmux);
+});

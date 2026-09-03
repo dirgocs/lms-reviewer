@@ -119,7 +119,17 @@ import {
   providerConfig,
   verificarAchados,
 } from './lms-reviewer-fallback.mjs';
+import { collectTmux } from './lms-reviewer-tmux.mjs';
 import { naoRastreados } from './lms-fix-escopo.mjs';
+
+/**
+ * P2-5 da revisao da Fase 4: manterJanela era codigo morto — nenhum chamador
+ * passava e o bin rodava sempre headless. A re-verificacao roda na TUI (modo
+ * padrao de producao, com contexto preservado); headless so com a env explicita.
+ */
+export function coletaDaReverificacao(env = process.env) {
+  return (env.LMS_REVIEWER_MODE ?? 'tmux') === 'headless' ? collectHeadless : collectTmux;
+}
 
 const execFile = promisify(execFileCallback);
 void _candidatesFrom;
@@ -154,8 +164,9 @@ export function loteDeFix(linhas, consumidas = 0) {
 export async function runReverificacao({
   root = process.cwd(),
   env = process.env,
-  collect = collectHeadless,
+  collect,
 } = {}) {
+  const coleta = collect ?? coletaDaReverificacao(env);
   if (String(env.LMS_VERIFY ?? '1') === '0') {
     const motivo = 'LMS_VERIFY=0 — fechar sem contraditorio e o buraco';
     console.error(`lms-reverificar: recusada — ${motivo}`);
@@ -221,7 +232,7 @@ export async function runReverificacao({
   }
 
   const prompt = reverificarPrompt(alvos, diffTexto);
-  const saida = await collect({
+  const saida = await coleta({
     root,
     provider,
     config: providerConfig(env),
@@ -229,8 +240,11 @@ export async function runReverificacao({
     env,
     prompt,
     parse: parseReverificacao,
+    // P2-5: caminhos proprios + janela preservada — a re-verificacao roda na TUI
+    // do mesmo revisor, com o contexto da rodada original.
     promptPath: join(root, '.lms', 'reverificar-prompt.md'),
     outPath: join(root, '.lms', 'reverificar.json'),
+    manterJanela: true,
   }).catch(() => ({ kind: 'error' }));
   const relato = saida.kind === 'ok' ? saida.candidate : null;
   const results = Array.isArray(relato?.results) ? relato.results : [];
@@ -248,15 +262,16 @@ export async function runReverificacao({
       root,
       config,
       env,
-      collect,
+      collect: coleta,
       ordem: config.order,
       autor: '',
       provider,
       base: scorecard.base,
       changed: diffTexto,
       scorecard: mini,
-      outputPathFor: () => '',
+      outputPathFor: (p) => join(root, '.lms', `reverificar-verificacao-${p}.json`),
       attempts: [],
+      manterJanela: true,
     });
     verificados = verificado.findings.map((f) => ({ id: f.id, verdict: f.verdict }));
   }

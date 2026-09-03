@@ -1754,6 +1754,7 @@ function parseVeredito(stdout = '', stderr = '') {
  */
 export async function verificarAchados({
   root, config, env, collect, ordem, autor, provider, base, changed, scorecard, outputPathFor, attempts,
+  manterJanela = false,
 }) {
   const findings = Array.isArray(scorecard?.findings) ? scorecard.findings : [];
   if (findings.length === 0) return scorecard;
@@ -1796,6 +1797,7 @@ export async function verificarAchados({
     const saida = await collect({
       root, provider: verificador, config: { ...config, papel: 'verificador' }, base, prompt, env,
       parse: parseVeredito, outputPath: outputPathFor(verificador),
+      manterJanela,
     }).catch(() => ({ kind: 'error' }));
     if (saida.kind !== 'ok' || !saida.candidate) {
       verificados.push(aplicarVeredito(finding, null, 'nao-verificavel'));
