@@ -88,11 +88,17 @@ export function fixPrompt(finding, arquivos) {
 }
 
 /** Ponto de comparacao antes do fix, sem encostar na pilha de stash. */
-async function marcoDaArvore(root) {
+export async function marcoDaArvore(root) {
   // `git stash create` so MONTA o objeto — nao empilha. `git stash push` mexeria
   // numa pilha compartilhada com as outras worktrees e com o Master.
   const { stdout } = await execFile("git", ["stash", "create"], { cwd: root });
-  return stdout.trim() || "HEAD";
+  if (stdout.trim()) return stdout.trim();
+  // P2-1 da revisao da Fase 3: com a arvore limpa o stash create sai vazio, e o
+  // fallback "HEAD" era uma REF simbolica — um `git commit` do proprio fix movia
+  // o HEAD e o diff passava a comparar com o commit que ele acabou de criar.
+  // SHA resolvido na hora nao se move.
+  const { stdout: sha } = await execFile("git", ["rev-parse", "HEAD"], { cwd: root });
+  return sha.trim();
 }
 
 async function registrar(root, linha) {
@@ -147,10 +153,17 @@ export async function corrigirAchado({
   const alterados = await arquivosAlterados(root, desde, untrackedAntes);
   const gateDepois = await capturarGate(root);
   const tocadosNoGate = gateTocado(gateAntes, gateDepois);
+  const relato = saida.kind === "ok" ? saida.candidate : null;
+  const declarouNada = relato?.outcome === "no_change_needed";
+  // P2-3 da revisao da Fase 3: "o achado estava errado, nao mudei nada" e um
+  // desfecho legitimo — a lista vazia so e suspeita quando o provider ALEGOU ter
+  // corrigido. Declarar nada e mudar arquivo continua sujeito a guarda.
   const violacao =
-    tocadosNoGate.length > 0
-      ? `o fix escreveu no proprio gate (.lms): ${tocadosNoGate.join(", ")}`
-      : escopoViolado(alterados, arquivos);
+    declarouNada && alterados.length === 0
+      ? null
+      : tocadosNoGate.length > 0
+        ? `o fix escreveu no proprio gate (.lms): ${tocadosNoGate.join(", ")}`
+        : escopoViolado(alterados, arquivos);
 
   // Ordem importa: a guarda de escopo roda ANTES de olhar o que o provider disse.
   // Um provider que estourou o escopo e anunciou "fixed" nao pode ser acreditado
@@ -170,8 +183,7 @@ export async function corrigirAchado({
     return linha;
   }
 
-  const relato = saida.kind === "ok" ? saida.candidate : null;
-  if (relato?.outcome === "no_change_needed") {
+  if (declarouNada) {
     const linha = {
       at: new Date().toISOString(),
       id: finding.id,

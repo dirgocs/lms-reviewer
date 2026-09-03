@@ -264,3 +264,36 @@ test("fix que escreve no .lms reverte e restaura o gate (P1-3)", async () => {
   assert.equal(injetado, false, "arquivo novo no gate foi removido");
   assert.match(await readFile(join(root, "a.ts"), "utf8"), /original = 1/);
 });
+
+// P2-1 da revisao da Fase 3: o fallback do marco tem de ser SHA, nunca 'HEAD' —
+// ref simbolica se move junto com um commit do proprio fix.
+test('marcoDaArvore devolve SHA e nao a ref HEAD (P2-1)', async () => {
+  const { marcoDaArvore } = await import('./lms-fix.mjs');
+  const root = await repoGit();
+  const marco = await marcoDaArvore(root);
+  const { stdout: sha } = await execFile('git', ['rev-parse', 'HEAD'], { cwd: root });
+  assert.equal(marco, sha.trim());
+  assert.notEqual(marco, 'HEAD');
+});
+
+// P2-3 da revisao da Fase 3: "o achado estava errado, nao mudei nada" e um
+// desfecho legitimo — nao violacao. A ordem antiga convertia em rejected-scope.
+test('no_change_needed sem alteracoes e desfecho, nao recusa (P2-3)', async () => {
+  const root = await repoGit();
+  const collect = async () => ({
+    kind: 'ok',
+    candidate: { outcome: 'no_change_needed', what: 'o achado estava errado: o filtro existe no middleware' },
+  });
+  const r = await corrigirAchado({ root, finding: alvo, provider: 'grok', config: {}, env: {}, collect });
+  assert.equal(r.outcome, 'no_change_needed');
+});
+
+test('no_change_needed COM alteracoes continua sujeito a guarda (P2-3)', async () => {
+  const root = await repoGit();
+  const collect = async () => {
+    await writeFile(join(root, 'b.ts'), 'const vizinho = 99;\n');
+    return { kind: 'ok', candidate: { outcome: 'no_change_needed', what: 'nao precisava' } };
+  };
+  const r = await corrigirAchado({ root, finding: alvo, provider: 'grok', config: {}, env: {}, collect });
+  assert.equal(r.outcome, 'rejected-scope', 'declarar que nao mudou nada nao autoriza mudar');
+});
