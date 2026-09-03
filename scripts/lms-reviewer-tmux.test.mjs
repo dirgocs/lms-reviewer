@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { attemptProvider, reviewPrompt, runFallback, stampScorecard } from './lms-reviewer-fallback.mjs';
-import { caminhosDaColeta, lerCandidato, sessionNameFor, tuiCommand } from './lms-reviewer-tmux.mjs';
+import { caminhosDaColeta, collectTmux, lerCandidato, sessionNameFor, tuiCommand } from './lms-reviewer-tmux.mjs';
 
 /** Scorecard bem formado; `inspected` é preenchido pelo teste contra arquivos reais. */
 function scorecard(overrides = {}) {
@@ -272,4 +272,49 @@ test('caminhosDaColeta: defaults de hoje preservados e override por chamador (Ta
   });
   assert.equal(custom.promptPath, '/repo/.lms/reverificar-prompt.md');
   assert.equal(custom.outPath, '/repo/.lms/reverificar.json');
+});
+
+// P1-1 da revisao da Fase 4: collectTmux (modo tmux = producao) explodia com
+// ReferenceError em relPrompt — nenhuma revisao rodava no caminho default.
+// Teste de integracao com tmux FALSO no PATH (sem rede, sem tmux real).
+test('collectTmux roda no modo tmux sem relPrompt indefinido (P1-1)', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'lms-tmux-p11-'));
+  const fakeDir = join(root, 'fakebin');
+  await mkdir(fakeDir, { recursive: true });
+  const fakeTmux = join(fakeDir, 'tmux');
+  await writeFile(fakeTmux, [
+    '#!/usr/bin/env node',
+    "const args = process.argv.slice(2);",
+    "const fs = require('node:fs');",
+    "if (args.includes('capture-pane')) { console.log('Working'); process.exit(0); }",
+    "if (args.includes('list-sessions')) { console.log('lms-review-fake'); process.exit(0); }",
+    "if (args.includes('send-keys') && process.env.FAKE_OUT && !fs.existsSync(process.env.FAKE_OUT)) {",
+    "  fs.mkdirSync(require('node:path').dirname(process.env.FAKE_OUT), { recursive: true });",
+    "  fs.writeFileSync(process.env.FAKE_OUT, JSON.stringify({ ok: true }));",
+    "}",
+    "process.exit(0);",
+  ].join('\n'));
+  await chmod(fakeTmux, 0o755);
+
+  const PATHAnterior = process.env.PATH;
+  process.env.PATH = `${fakeDir}:${PATHAnterior}`;
+  process.env.FAKE_OUT = join(root, '.lms', 'candidates', 'grok.json');
+  // Costuras lazy: boot/poll/timeout curtos para o teste rodar em ~1s.
+  process.env.LMS_TMUX_BOOT_MS = '50';
+  process.env.LMS_TMUX_POLL_MS = '50';
+  process.env.LMS_TMUX_TIMEOUT_MS = '5000';
+  try {
+    const saida = await collectTmux({
+      root,
+      provider: 'grok',
+      config: { models: { grok: 'grok-4.6' } },
+      prompt: 'revise',
+      parse: null,
+    });
+    assert.equal(saida.kind, 'ok', `veio ${saida.kind}: ${JSON.stringify(saida)}`);
+    assert.deepEqual(saida.candidate, { ok: true });
+  } finally {
+    process.env.PATH = PATHAnterior;
+    await rm(root, { recursive: true, force: true });
+  }
 });

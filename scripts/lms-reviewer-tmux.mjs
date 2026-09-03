@@ -46,11 +46,11 @@ export function sessionNameFor(root) {
 }
 
 const SESSION = sessionNameFor(process.cwd());
-const POLL_MS = Number(process.env.LMS_TMUX_POLL_MS ?? 4000);
+const POLL_MS = () => Number(process.env.LMS_TMUX_POLL_MS ?? 4000);
 /** Teto por revisor. O grok levou 76s e o codex 153s nas medições do handoff. */
-const TIMEOUT_MS = Number(process.env.LMS_TMUX_TIMEOUT_MS ?? 15 * 60 * 1000);
+const TIMEOUT_MS = () => Number(process.env.LMS_TMUX_TIMEOUT_MS ?? 15 * 60 * 1000);
 /** A TUI precisa terminar de subir antes de receber texto; abaixo disto o send-keys se perde. */
-const BOOT_MS = Number(process.env.LMS_TMUX_BOOT_MS ?? 10_000);
+const BOOT_MS = () => Number(process.env.LMS_TMUX_BOOT_MS ?? 10_000);
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -257,6 +257,7 @@ async function collectTmux({
     outPath: outPathOverride,
   });
   const relOut = relativoAoRoot(outPath, root);
+  const relPrompt = relativoAoRoot(promptPath, root);
 
   await mkdir(dirname(outPath), { recursive: true });
   await rm(outPath, { force: true });
@@ -281,7 +282,7 @@ async function collectTmux({
     ...tuiCommand(provider, model),
   ]);
 
-  await sleep(BOOT_MS);
+  await sleep(BOOT_MS());
   // A instrucao NAO diz "scorecard": a mesma coleta serve ao contraditorio, cujo JSON
   // tem outra forma. Pedir scorecard ali faria o agente gravar um, o veredito viria
   // sem `refuted`, e o contraditorio falharia ABERTO — decorativo justamente no
@@ -298,7 +299,7 @@ async function collectTmux({
     return { kind: 'timeout' };
   }
 
-  const deadline = Date.now() + TIMEOUT_MS;
+  const deadline = Date.now() + TIMEOUT_MS();
   // Aceitar o PRIMEIRO JSON parseável era um bug caro: o revisor grava o candidato
   // em mais de um passo (um JSON válido sem `inspected`, depois o completo), o poll
   // pegava a primeira versão e a rodada morria como "payload-incompleto" — com o
@@ -307,7 +308,7 @@ async function collectTmux({
   // quando duas leituras consecutivas devolvem os MESMOS bytes parseáveis.
   let leituraAnterior = null;
   while (Date.now() < deadline) {
-    await sleep(POLL_MS);
+    await sleep(POLL_MS());
     if (!existsSync(outPath)) continue;
     // Arquivo recém-criado pode estar pela metade: JSON inválido aqui não é veredito,
     // é escrita em andamento — segue esperando até o teto.
