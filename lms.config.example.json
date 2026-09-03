@@ -42,5 +42,14 @@
   "$nonExemptPaths": [
     "Excecoes prioritarias dentro de prefixos isentos; qualquer match barra a isencao."
   ],
-  "nonExemptPaths": ["^docs/runtime/"]
+  "nonExemptPaths": ["^docs/runtime/"],
+
+  "$testCommand": [
+    "Fase 4: suíte verde como pré-condição de rodada. O comando roda ANTES de",
+    "gastar cota com revisores; suíte vermelha recusa a rodada (exit 11, nenhum",
+    "provider invocado). Opcional: sem a chave o degrau é pulado com aviso. Tempo",
+    "limite próprio em LMS_TEST_TIMEOUT_MS (default 10 min); LMS_TEST_GATE=0 desliga.",
+    "Falha de ferramenta (comando ausente, timeout) avisa e segue — nunca decide."
+  ],
+  "testCommand": { "cmd": "pnpm", "args": ["test"] }
 }

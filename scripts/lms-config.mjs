@@ -38,6 +38,7 @@ const EMPTY = Object.freeze({
   fallow: Object.freeze({ gate: null, baseline: '.fallow/baseline.json' }),
   exemptPaths: DEFAULT_EXEMPT_PATHS,
   nonExemptPaths: Object.freeze([]),
+  testCommand: null,
 });
 
 const cache = new Map();
@@ -77,6 +78,10 @@ export function loadConfig(root = projectRoot()) {
         }),
         exemptPaths: regexList(raw.exemptPaths, DEFAULT_EXEMPT_PATHS, 'exemptPaths'),
         nonExemptPaths: regexList(raw.nonExemptPaths, [], 'nonExemptPaths'),
+        // Fase 4: suíte verde como pré-condição de rodada. String = comando inteiro;
+        // objeto = { cmd, args }. Opcional por desenho: repo sem suíte não declara
+        // e o degrau é pulado com aviso.
+        testCommand: normalizarTestCommand(raw.testCommand),
       });
     } catch (error) {
       // Config quebrada não pode virar aprovação silenciosa: avisa alto e segue
@@ -93,6 +98,19 @@ export function loadConfig(root = projectRoot()) {
 
 function str(value) {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+/** Fase 4: normaliza `testCommand` (string ou { cmd, args }) para { cmd, args } | null. */
+function normalizarTestCommand(valor) {
+  if (typeof valor === 'string' && valor.trim()) {
+    return Object.freeze({ cmd: valor.trim(), args: Object.freeze([]) });
+  }
+  if (valor && typeof valor === 'object' && !Array.isArray(valor) &&
+      str(valor.cmd) &&
+      Array.isArray(valor.args) && valor.args.every((a) => typeof a === 'string')) {
+    return Object.freeze({ cmd: valor.cmd.trim(), args: Object.freeze([...valor.args]) });
+  }
+  return null;
 }
 
 /**

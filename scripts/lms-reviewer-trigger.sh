@@ -77,6 +77,20 @@ if [ "${LMS_TRIAGE:-1}" = "1" ]; then
   fi
 fi
 
+# Fase 4: suíte vermelha recusa a rodada ANTES de gastar cota (exit 11). Falha de
+# ferramenta (comando ausente, timeout) avisa e segue — erro de infra nunca decide
+# sozinho, mesmo precedente da triagem. LMS_TEST_GATE=0 desliga.
+if [ "${LMS_TEST_GATE:-1}" = "1" ]; then
+  set +e
+  node "$PACKAGE_ROOT/scripts/lms-pre-rodada.mjs" --root "$ROOT"
+  PRE_RODADA_RC=$?
+  set -e
+  if [ "$PRE_RODADA_RC" = "11" ]; then
+    echo "lms-trigger: rodada recusada — suíte vermelha (nenhum provider invocado)" >&2
+    exit 11
+  fi
+fi
+
 scorecard_ok() {
   [ -f "$PACKAGE_ROOT/scripts/lms-scorecard.mjs" ] || return 1
   node "$PACKAGE_ROOT/scripts/lms-scorecard.mjs" \
