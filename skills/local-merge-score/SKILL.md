@@ -422,6 +422,7 @@ before `git commit` / `git push` / `gh pr create`.
 | `LMS_HOOK_MIN_SCORE`              | Default `5` — only 5/5 goes up to PR; plateau escalation is the sanctioned exception (Master decides, may use `LMS_SKIP=1`) |
 | `LMS_HOOK_MAX_AGE_SEC`            | Default `7200` (2h)                                                                                                         |
 | `LMS_HOOK_SKIP=1` or `LMS_SKIP=1` | Bypass hook                                                                                                                 |
+| `LMS_EFFORT`                      | `medium` \| `high` \| `xhigh`. Sem ela, o effort do revisor Claude sai do raio do diff: `xhigh` quando toca auth/tenant/fiscal/migrations/signer/webhook, `high` no resto. O grok continua em `medium` (mede melhor), e o codex tem `high` como teto. |
 
 Default is inject-context only (not strict). `.lms/` is gitignored runtime state.
 

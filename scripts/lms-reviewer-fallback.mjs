@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 
 import { scorecardError, scorecardFormError, findingId } from './lms-scorecard.mjs';
+import { effortPara } from './lms-effort.mjs';
 import { reviewSubject } from './lms-subject.mjs';
 import { inspectionError } from './lms-inspection.mjs';
 import { loadConfig, projectRoot } from './lms-config.mjs';
@@ -48,10 +49,14 @@ function timeoutMs(env) {
   return Number.isFinite(timeoutSec) && timeoutSec > 0 ? timeoutSec * 1000 : 900_000;
 }
 
-export function providerConfig(env = process.env) {
+export function providerConfig(env = process.env, { paths = [] } = {}) {
+  const effort = effortPara(paths, env);
   return {
     order: envList(env, 'LMS_REVIEWER_ORDER', 'claude,grok,codex'),
-    claudeEffort: env.LMS_CLAUDE_EFFORT,
+    // O effort do refutador continua vindo de LMS_CLAUDE_EFFORT (Fable em medium,
+    // decisao do Master 2026-08-19): so o REVISOR sobe com o raio.
+    claudeEffort: env.LMS_CLAUDE_EFFORT ?? effort,
+    effort,
     // `xhigh`, não `high` (diretriz Master 2026-08-27). Review é o trabalho mais
     // difícil da cadeia: o revisor tem de refutar código já defendido em comentário,
     // e cada rodada perdida custa 8–20 min. Esforço a mais aqui é barato comparado
@@ -1836,13 +1841,14 @@ export async function runFallback({
   outputPathFor = () => '',
 } = {}) {
   const resolvedBase = base ?? (await resolveBase(root));
-  const config = providerConfig(env);
   const {
     text: changed,
     paths: changedPaths,
     changedFiles,
     changedLines,
   } = await diffContext(root, resolvedBase);
+  // Raio do diff define a profundidade: effort so o REVISOR sobe com o grafo.
+  const config = providerConfig(env, { paths: [...changedPaths] });
   const fallow = await fallowVerdict(root);
   const subject = await reviewSubject(root, resolvedBase);
   const round = {
