@@ -303,6 +303,14 @@ export async function runFix({
       `${resultado.recusados.length} revertido(s), ${resultado.escalados.length} escalado(s). ` +
       "O scorecard foi invalidado pelo subject — rode a cadeia de novo.",
   );
+  // P2-4 da revisao da Fase 4: o disparo da re-verificacao e manual, mas o comando
+  // PRECISA aparecer no momento em que serve — logo apos o fix, com os ids.
+  if (resultado.aplicados.length > 0) {
+    const ids = resultado.aplicados.map((l) => l.id).filter(Boolean);
+    console.error(
+      `lms-fix: rode 'pnpm lms:reverificar' # ids: ${ids.join(", ")}`,
+    );
+  }
   return resultado;
 }
 

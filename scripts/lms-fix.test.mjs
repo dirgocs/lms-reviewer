@@ -333,3 +333,29 @@ test('linha do fixes.jsonl carrega o marco do fix (Task 2)', async () => {
   const { stdout } = await execFile('git', ['rev-parse', 'HEAD'], { cwd: root });
   assert.equal(linha.marco, stdout.trim());
 });
+
+// P2-4 da revisao da Fase 4: o disparo da re-verificacao e manual, mas o comando
+// PRECISA aparecer no momento em que serve — logo apos o fix, com os ids.
+test('runFix imprime o comando de re-verificacao com os ids (P2-4)', async () => {
+  const root = await repoGit();
+  await mkdir(join(root, '.lms'), { recursive: true });
+  await writeFile(join(root, '.lms', 'last.json'), JSON.stringify({
+    reviewer: 'grok', base: 'HEAD',
+    findings: [{ ...alvo }],
+  }));
+  const capturado = [];
+  const erroOriginal = console.error;
+  console.error = (...args) => capturado.push(args.join(' '));
+  try {
+    const collect = async () => {
+      await writeFile(join(root, 'a.ts'), 'const original = 2;\n');
+      return { kind: 'ok', candidate: { outcome: 'fixed', what: 'corrigi' } };
+    };
+    await runFix({ root, env: { LMS_FIX_MODE: 'reviewer' }, collect });
+  } finally {
+    console.error = erroOriginal;
+  }
+  const texto = capturado.join('\n');
+  assert.match(texto, /lms:reverificar/);
+  assert.match(texto, /a1/);
+});
