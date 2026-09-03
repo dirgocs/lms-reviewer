@@ -1008,10 +1008,14 @@ export async function attemptProvider({
   // FORMA (scorecardFormError), nunca por veredito — reprovar e resposta valida,
   // nao erro de formato. A volta usa retryPrompt, que devolve a mensagem exata de
   // validacao para quem errou.
+  const promptOriginal = prompt;
   let entrada = prompt;
   let scorecard;
   let durationMs = 0;
-  for (let tentativa = 1; tentativa <= maxTentativas; tentativa += 1) {
+  // P3-7 da revisao da Fase 1: piso de 1 — maxTentativas 0/NaN deixava o laco sem
+  // rodar e `scorecard` undefined estourava adiante com TypeError.
+  const tentativas = Math.max(1, Number(maxTentativas) || 2);
+  for (let tentativa = 1; tentativa <= tentativas; tentativa += 1) {
     const started = Date.now();
     const result = await collect({ root, provider, config, base, prompt: entrada, env });
     durationMs = Date.now() - started;
@@ -1039,7 +1043,7 @@ export async function attemptProvider({
       scorecardFormError(scorecard, { reviewer: provider, base, subject }) ??
       (scorecard ? await inspectionError(scorecard, changedPaths ?? new Set(), root) : null) ??
       (scorecard ? await verifiedDiskError(scorecard, root) : null);
-    if (formError && tentativa < maxTentativas) {
+    if (formError && tentativa < tentativas) {
       await logAttempt(
         root,
         provider,
@@ -1048,7 +1052,7 @@ export async function attemptProvider({
         `reason=${formError.replaceAll(' ', '_')}`,
         telemetryData(rodada, 'reviewer', provider, config, scorecard),
       );
-      entrada = retryPrompt(entrada, formError);
+      entrada = retryPrompt(promptOriginal, formError);
       continue;
     }
     if (formError) {

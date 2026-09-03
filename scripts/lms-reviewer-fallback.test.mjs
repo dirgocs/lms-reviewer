@@ -280,6 +280,23 @@ test('retryPrompt carrega a mensagem de validacao e o prompt original', () => {
   assert.match(p, /rejected/i);
 });
 
+// P3-1 da revisao da Fase 1: com maxTentativas configuravel, o wrapper aninhava —
+// cada volta empilhava outro bloco de instrucoes originais.
+test('retentativas nao aninham o wrapper (P3-1)', async () => {
+  const { root, opcoes } = await fixture();
+  const prompts = [];
+  const collect = async ({ prompt }) => {
+    prompts.push(prompt);
+    return { kind: 'ok', candidate: { score: 5 } };
+  };
+  await attemptProvider({ ...opcoes, root, collect, maxTentativas: 3 });
+  assert.equal(prompts.length, 3);
+  for (const prompt of prompts.slice(1)) {
+    assert.equal((prompt.match(/VALIDATION ERROR/g) ?? []).length, 1);
+    assert.equal((prompt.match(/ORIGINAL INSTRUCTIONS/g) ?? []).length, 1);
+  }
+});
+
 test('attemptProvider tenta de novo quando a primeira saida esta malformada', async () => {
   const { root, opcoes, scorecardValido } = await fixture();
   const saidas = [{ score: 5 }, scorecardValido];
