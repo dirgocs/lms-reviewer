@@ -65,7 +65,9 @@ export function verificarPrompt(finding, base, changed = '', outputPath = '') {
  * Ausencia de segunda opiniao nao absolve.
  */
 export function aplicarVeredito(finding, veredito, provaResultado) {
-  const idConfere = !veredito || finding.id === undefined || veredito.id === finding.id;
+  // P3-2 da revisao da Fase 3: sem porta de saida — achado sem id tambem e
+  // divergencia, senao qualquer chamador novo herda o furo.
+  const idConfere = !veredito || veredito.id === finding.id;
   const bruto = veredito && VEREDITOS.has(veredito.verdict) && idConfere ? veredito.verdict : 'CONFIRMED';
   let verdict = bruto;
   if (bruto === 'FALSE_POSITIVE') {

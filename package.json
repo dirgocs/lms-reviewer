@@ -1,6 +1,6 @@
 {
   "name": "@dirgocs/lms-reviewer",
-  "version": "1.1.5",
+  "version": "1.2.0",
   "private": true,
   "type": "module",
   "description": "Gate de push bloqueante: cadeia de revisores headless (Claude/Grok/Codex) com scorecard verificado contra o disco",
@@ -10,11 +10,12 @@
     "node": ">=22"
   },
   "bin": {
-    "lms-trigger": "./scripts/lms-reviewer-trigger.sh",
+    "lms-exempt-paths": "./scripts/lms-exempt-paths.mjs",
+    "lms-fix": "./scripts/lms-fix.mjs",
+    "lms-push-gate": "./scripts/lms-push-gate.mjs",
     "lms-reviewer": "./scripts/lms-reviewer-spawn.sh",
     "lms-reviewer-tmux": "./scripts/lms-reviewer-tmux.mjs",
-    "lms-push-gate": "./scripts/lms-push-gate.mjs",
-    "lms-exempt-paths": "./scripts/lms-exempt-paths.mjs"
+    "lms-trigger": "./scripts/lms-reviewer-trigger.sh"
   },
   "scripts": {
     "test": "node --test scripts/*.test.mjs && sh scripts/lms-push-changed.test.sh && bash hooks/local-merge-score-gate.test.sh",

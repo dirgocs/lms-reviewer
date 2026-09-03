@@ -8,14 +8,16 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 const skill = readFileSync(join(root, 'skills/local-merge-score/SKILL.md'), 'utf8');
 
-test('v1.1 expoe todos os comandos usados pelo consumidor', () => {
-  assert.equal(pkg.version, '1.1.5');
+test('v1.2 expoe todos os comandos usados pelo consumidor', () => {
+  assert.equal(pkg.version, '1.2.0');
   assert.deepEqual(pkg.bin, {
     'lms-trigger': './scripts/lms-reviewer-trigger.sh',
     'lms-reviewer': './scripts/lms-reviewer-spawn.sh',
     'lms-reviewer-tmux': './scripts/lms-reviewer-tmux.mjs',
     'lms-push-gate': './scripts/lms-push-gate.mjs',
     'lms-exempt-paths': './scripts/lms-exempt-paths.mjs',
+    // P3-1 da revisao da Fase 3: o consumidor dispara bins, nao scripts internos.
+    'lms-fix': './scripts/lms-fix.mjs',
   });
 });
 

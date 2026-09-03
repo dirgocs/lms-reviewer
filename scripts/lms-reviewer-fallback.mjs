@@ -931,7 +931,7 @@ export function stampScorecard(parsed, provider, fallow, base, extra = {}) {
   // modelo inventar id abriria caminho para dois achados iguais com ids diferentes
   // (e a rastreabilidade entre iteracoes morre em silencio).
   const findings = Array.isArray(parsed.findings)
-    ? parsed.findings.map((finding) => ({ ...finding, id: finding.id ?? findingId(finding) }))
+    ? parsed.findings.map((finding) => ({ ...finding, id: findingId(finding) }))
     : parsed.findings;
   return {
     ...parsed,
