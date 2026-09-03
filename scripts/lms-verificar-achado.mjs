@@ -13,10 +13,17 @@ export const MAX_VERIFICACOES = 5;
 
 const VEREDITOS = new Set(['CONFIRMED', 'PLAUSIBLE', 'FALSE_POSITIVE']);
 
-export function verificarPrompt(finding, base, changed = '') {
+export function verificarPrompt(finding, base, changed = '', outputPath = '') {
   return [
     `A reviewer flagged the finding below on the current branch against ${base}.`,
     'Your job is to try to DEMOLISH it, not to agree with it.',
+    '',
+    // P2-5 da revisao da Fase 3: no tmux o candidato so existe se o verificador
+    // GRAVAR o arquivo — prompt que manda imprimir produz timeout, nao veredito.
+    outputPath
+      ? `Write EXACTLY ONE JSON object to ${outputPath} — the file must contain the` +
+        ' object and nothing else. No prose, no markdown fences.'
+      : 'Output EXACTLY ONE JSON object, no prose, no markdown fences.',
     '',
     '--- FINDING ---',
     `severity: ${finding.severity}   confidence: ${finding.confidence}`,

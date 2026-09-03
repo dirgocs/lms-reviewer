@@ -1750,7 +1750,9 @@ async function verificarAchados({
       verificados.push(aplicarVeredito(finding, null, 'nao-verificavel'));
       continue;
     }
-    const prompt = verificarPrompt(finding, base, changed);
+    // P2-5: o outputPath entra no prompt — no tmux o verificador so produz
+    // candidato se souber ONDE gravar.
+    const prompt = verificarPrompt(finding, base, changed, outputPathFor(verificador));
     const saida = await collect({
       root, provider: verificador, config: { ...config, papel: 'verificador' }, base, prompt, env,
       parse: parseVeredito, outputPath: outputPathFor(verificador),

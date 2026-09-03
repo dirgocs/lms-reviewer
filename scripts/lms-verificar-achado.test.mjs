@@ -86,3 +86,15 @@ test('verificarPrompt inclui o achado e proibe re-revisar', () => {
   assert.match(p, /CONFIRMED/);
   assert.match(p, /do not review/i);
 });
+
+// P2-5 da revisao da Fase 3: no tmux (caminho principal) o candidato so existe se
+// o verificador GRAVAR o arquivo — prompt que manda imprimir nunca produzia
+// candidato, e o estagio inteiro virava timeout → CONFIRMED.
+test('verificarPrompt diz onde gravar quando ha outputPath (P2-5)', () => {
+  const p = verificarPrompt(achado(), 'origin/master', 'src/a.ts', '.lms/candidates/grok.json');
+  assert.match(p, /\.lms\/candidates\/grok\.json/);
+  assert.match(p, /Write EXACTLY ONE JSON object/);
+
+  const sem = verificarPrompt(achado(), 'origin/master');
+  assert.doesNotMatch(sem, /Write EXACTLY ONE JSON object/);
+});
