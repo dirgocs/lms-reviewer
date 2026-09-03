@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { attemptProvider, reviewPrompt, runFallback, stampScorecard } from './lms-reviewer-fallback.mjs';
-import { sessionNameFor, tuiCommand } from './lms-reviewer-tmux.mjs';
+import { lerCandidato, sessionNameFor, tuiCommand } from './lms-reviewer-tmux.mjs';
 
 /** Scorecard bem formado; `inspected` é preenchido pelo teste contra arquivos reais. */
 function scorecard(overrides = {}) {
@@ -229,4 +229,31 @@ test('LMS_GROK_BIN so substitui o TUI com o atestado de trava (rodada 85)', () =
     if (travaAnterior === undefined) delete process.env.LMS_GROK_BIN_TRAVADO;
     else process.env.LMS_GROK_BIN_TRAVADO = travaAnterior;
   }
+});
+
+// P3-2 da revisao da Fase 2: collectTmux ignorava o parse do chamador — no modo
+// tmux (o caminho principal de producao) o verificador por achado saia CONFIRMED
+// sem verificacao de verdade, porque o parser "mesma varredura do scorecard"
+// nunca era aplicado ao arquivo do candidato.
+test('candidato sai pelo parse do chamador; sem parse, JSON.parse (P3-2)', () => {
+  const bruto = 'lixo antes {"verdict":"CONFIRMED","why":"abri e reproduzi"} depois';
+
+  const parseVeredito = (texto) => {
+    const bruto = texto.match(/\{[^{}]*"verdict"[^{}]*\}/);
+    return bruto ? JSON.parse(bruto[0]) : null;
+  };
+
+  assert.deepEqual(
+    lerCandidato(bruto, parseVeredito),
+    { verdict: 'CONFIRMED', why: 'abri e reproduzi' },
+  );
+
+  // Arquivo sem objeto de veredito (ex.: scorecard antigo do provider) nao e
+  // veredito: null, e o poll continua ate o teto — falha fechada.
+  assert.equal(lerCandidato('{"score": 5}', parseVeredito), null);
+  assert.equal(lerCandidato('{}', (t) => { JSON.parse(t); }), null);
+});
+
+test('sem parse, o candidato sai do JSON.parse (comportamento preservado)', () => {
+  assert.deepEqual(lerCandidato('{"refuted": false}'), { refuted: false });
 });

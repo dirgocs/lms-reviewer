@@ -209,7 +209,25 @@ async function enviarPromptAteEntrar(window, relOut) {
  * O prompt vai por ARQUIVO, nunca digitado: prosa longa colada numa TUI submete cedo na
  * primeira quebra de linha. O send-keys só aponta onde ler.
  */
-async function collectTmux({ root, provider, config, prompt }) {
+/**
+ * Extrai o candidato do arquivo com o MESMO parser de quem chama (P3-2).
+ *
+ * Sem parse: JSON.parse, o comportamento anterior. Com parse: o extrator do
+ * chamador (ex.: veredito do verificador por achado) decide o que vale — um
+ * scorecard antigo no mesmo arquivo NAO e veredito, e o poll segue ate o teto.
+ */
+export function lerCandidato(texto, parse = null) {
+  try {
+    if (!parse) return JSON.parse(texto);
+    return parse(texto, '') ?? null;
+  } catch {
+    // Escrita em andamento ou texto sem a forma esperada: nao e veredito —
+    // o poll continua ate o teto (falha fechada).
+    return null;
+  }
+}
+
+async function collectTmux({ root, provider, config, prompt, parse = null }) {
   const promptPath = join(root, '.lms', 'review-prompt.md');
   const outPath = join(root, '.lms', 'candidates', `${provider}.json`);
   const relOut = `.lms/candidates/${provider}.json`;
@@ -269,7 +287,17 @@ async function collectTmux({ root, provider, config, prompt }) {
     // é escrita em andamento — segue esperando até o teto.
     try {
       const texto = await readFile(outPath, 'utf8');
-      const candidate = JSON.parse(texto);
+      // P3-2 da revisao da Fase 2: o candidato sai pelo parse de QUEM CHAMA — o
+      // verificador por achado pede extrator de veredito, e o scorecard antigo do
+      // provider no mesmo arquivo nao pode ser lido como veredito. Sem parse,
+      // comportamento anterior (JSON.parse).
+      const candidate = lerCandidato(texto, parse);
+      if (!candidate) {
+        // Parser nao achou o que procurava (escrita em andamento ou arquivo sem a
+        // forma esperada): nao e veredito, segue esperando ate o teto.
+        leituraAnterior = texto;
+        continue;
+      }
       if (texto !== leituraAnterior) {
         leituraAnterior = texto;
         continue;
