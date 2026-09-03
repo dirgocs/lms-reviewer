@@ -16,6 +16,7 @@ import {
 } from './lms-scorecard.mjs';
 import { effortPara } from './lms-effort.mjs';
 import { lerPrecedentes, registrarPrecedente } from './lms-precedentes.mjs';
+import { autoresPorArquivo, providerPodeRevisar } from './lms-fix-autoria.mjs';
 import {
   aplicarVeredito,
   MAX_VERIFICACOES,
@@ -2030,7 +2031,13 @@ export async function runFallback({
   // sai marcado `self`, que é a categoria fraca e aparece em voz alta no gate, em
   // vez de se disfarçar de revisão independente.
   const autor = authorProvider(env);
-  const independentes = config.order.filter((provider) => provider !== autor);
+  // Autor da sessao fora da cadeia (como sempre) E quem corrigiu arquivo deste diff
+  // (Fase 3): um provider que fixou arquivo do diff atual nao pontua o proprio
+  // conserto — mas sai SO desta rodada, nao da cadeia inteira.
+  const autores = await autoresPorArquivo(root);
+  const independentes = config.order.filter(
+    (provider) => provider !== autor && providerPodeRevisar(provider, [...changedPaths], autores),
+  );
   const ordem = independentes.length > 0 ? independentes : config.order;
   const autonomy = independentes.length > 0 ? 'reviewer' : 'self';
   if (autonomy === 'self') {
