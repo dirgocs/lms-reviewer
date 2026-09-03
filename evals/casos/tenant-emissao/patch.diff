@@ -1,0 +1,15 @@
+diff --git a/services/api/src/pos/emissao.ts b/services/api/src/pos/emissao.ts
+new file mode 100644
+--- /dev/null
++++ b/services/api/src/pos/emissao.ts
+@@ -0,0 +1,9 @@
++import { db } from '../db';
++
++// Emissão de documento fiscal por id.
++export async function emitir(id: string) {
++  const emissao = await db.emissao.findUnique({
++    where: { id },
++  });
++  if (!emissao) throw new Error('nao encontrado');
++  return emissao;
++}

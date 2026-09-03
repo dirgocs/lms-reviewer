@@ -1,0 +1,11 @@
+diff --git a/services/api/src/pos/preview.ts b/services/api/src/pos/preview.ts
+new file mode 100644
+--- /dev/null
++++ b/services/api/src/pos/preview.ts
+@@ -0,0 +1,7 @@
++import { db } from '../db';
++
++// Preview de emissão: mesmo payload da emissão, sem gravar.
++export async function prever(payload: unknown) {
++  return db.$transaction(async (tx) => tx.emissao.create({ data: payload as any }));
++}

@@ -1,0 +1,6 @@
+{
+  "p1": [
+    { "id": "paridade-preview", "lens": "code-structure", "path": "services/api/src/pos/preview.ts" }
+  ],
+  "fp_conhecidos": []
+}

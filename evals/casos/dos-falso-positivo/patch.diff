@@ -1,0 +1,11 @@
+diff --git a/services/api/src/webhooks/handler.ts b/services/api/src/webhooks/handler.ts
+new file mode 100644
+--- /dev/null
++++ b/services/api/src/webhooks/handler.ts
+@@ -0,0 +1,6 @@
++import { db } from '../db';
++
++// Webhook de acquirer: o gateway já aplica rate limit na borda.
++export async function receber(payload: unknown) {
++  return db.webhookEvento.create({ data: payload as any });
++}

@@ -1,0 +1,6 @@
+{
+  "p1": [
+    { "id": "tenant-emissao", "lens": "code-safety", "path": "services/api/src/pos/emissao.ts" }
+  ],
+  "fp_conhecidos": []
+}

@@ -10,6 +10,7 @@
     "node": ">=22"
   },
   "bin": {
+    "lms-eval": "./scripts/lms-eval.mjs",
     "lms-exempt-paths": "./scripts/lms-exempt-paths.mjs",
     "lms-fix": "./scripts/lms-fix.mjs",
     "lms-push-gate": "./scripts/lms-push-gate.mjs",
@@ -24,7 +25,8 @@
     "lms:reviewer:tmux": "node scripts/lms-reviewer-tmux.mjs",
     "lms:trigger": "bash scripts/lms-reviewer-trigger.sh",
     "lms:fix": "node scripts/lms-fix.mjs",
-    "lms:reverificar": "node scripts/lms-reverificar.mjs"
+    "lms:reverificar": "node scripts/lms-reverificar.mjs",
+    "lms:eval": "node scripts/lms-eval.mjs"
   },
   "files": [
     "scripts/",
