@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
 
 import {
@@ -235,7 +236,10 @@ const MIN_CLAIM_LENGTH = 20;
  */
 function scoreCoerenteError(value) {
   const findings = Array.isArray(value.findings) ? value.findings : [];
-  const confirmados = findings.filter((f) => (f.verdict ?? 'CONFIRMED') === 'CONFIRMED');
+  // P2-6: fechado pela re-verificacao nao pesa no score.
+  const confirmados = findings
+    .filter((f) => f.reverificado !== 'closed')
+    .filter((f) => (f.verdict ?? 'CONFIRMED') === 'CONFIRMED');
   const temP01 = confirmados.some((f) => f.severity === 'P0' || f.severity === 'P1')
     || (findings.length === 0 && (value.p0 > 0 || value.p1 > 0));
   if (temP01 && value.score > 3) {
@@ -290,6 +294,9 @@ function verdictFindingsError(value) {
     // DIFERENTE de quem escreveu o scorecard), o proprio revisor podia se
     // auto-absolver escrevendo PLAUSIBLE. Sem procedencia, conta como CONFIRMED.
     const bloqueiam = findings.filter((f) => {
+      // P2-6 da revisao da Fase 4: fechado pela re-verificacao sai da lista
+      // bloqueante (o gate cruza last.json x reverificacao.json pelo subject).
+      if (f.reverificado === 'closed') return false;
       if (!f.verdict) return true;
       if (f.verdict === 'CONFIRMED') return true;
       // Procedencia: verificador declarado e DIFERENTE de quem escreveu o scorecard.
@@ -472,7 +479,27 @@ function cliUsage() {
 
 async function validateFile(args) {
   try {
-    const value = JSON.parse(await readFile(args.file, 'utf8'));
+    let value = JSON.parse(await readFile(args.file, 'utf8'));
+    // P2-6 da revisao da Fase 4: cruzamento last.json x reverificacao.json pelo
+    // subject — achado fechado pela re-verificacao sai da lista bloqueante, SEM
+    // mexer em score/agregado/coverage. Subject diferente nao cruza.
+    let fechados = [];
+    try {
+      const reverificacao = JSON.parse(
+        await readFile(join(dirname(args.file), 'reverificacao.json'), 'utf8'),
+      );
+      if (reverificacao.subject && reverificacao.subject === value.subject) {
+        fechados = reverificacao.fechados ?? [];
+      }
+    } catch {}
+    if (fechados.length > 0) {
+      value = {
+        ...value,
+        findings: (value.findings ?? []).map((f) =>
+          fechados.includes(f.id) ? { ...f, reverificado: 'closed' } : f,
+        ),
+      };
+    }
     // O gate recalcula o subject aqui: e o unico ponto que sabe o estado ATUAL do
     // repositorio. Confiar no que o scorecard diz sobre si mesmo seria deixar a
     // amarra nas maos de quem ela deveria limitar.

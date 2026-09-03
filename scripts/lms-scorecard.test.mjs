@@ -369,3 +369,78 @@ test('findingsShapeError aceita o achado estrutural da classe recorrente (Task 6
   };
   assert.equal(findingsShapeError({ findings: [sintetico] }), null);
 });
+
+// P2-6 da revisao da Fase 4: `closed` PRECISA remover o achado da lista
+// bloqueante — cruzando last.json x reverificacao.json pelo subject, sem mexer
+// em score/agregado. Sem o cruzamento, a re-verificacao nao serve para nada.
+test('gate ignora achado fechado pela re-verificação, cruzando pelo subject (P2-6)', async () => {
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const { reviewSubject } = await import('./lms-subject.mjs');
+  const { mkdtemp, mkdir, writeFile } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join, dirname } = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const rodarCli = async (rootDir) => {
+    const { promisify } = await import('node:util');
+    const cli = join(dirname(fileURLToPath(import.meta.url)), 'lms-scorecard.mjs');
+    return promisify(execFile)(
+      process.execPath,
+      [cli, '--file', join(rootDir, '.lms', 'last.json'), '--base', 'HEAD~1'],
+      { cwd: rootDir },
+    )
+      .then((r) => ({ ...r, code: 0 }))
+      .catch((e) => ({ ...e, code: e.code ?? 1 }));
+  };
+
+  const root = await mkdtemp(join(tmpdir(), 'lms-gate-p26-'));
+  const git = (args) => promisify(execFile)('git', args, { cwd: root });
+  await writeFile(join(root, '.gitignore'), '.lms/\n');
+  await git(['init', '-q']);
+  await git(['config', 'user.email', 'lms@test'], { cwd: root });
+  await git(['config', 'user.name', 'lms'], { cwd: root });
+  await writeFile(join(root, 'a.ts'), 'const original = 1;\n');
+  await git(['add', '.'], { cwd: root });
+  await git(['commit', '-qm', 'base'], { cwd: root });
+  await writeFile(join(root, 'a.ts'), 'const original = 2;\n');
+  await git(['add', '.']);
+  await git(['commit', '-qm', 'fix']);
+
+  const subject = await reviewSubject(root, 'HEAD~1');
+  const card = {
+    reviewer: 'grok', score: 5, target: 5, base: 'HEAD~1', subject,
+    p0: 0, p1: 1, p2: 0,
+    lenses: {
+      'code-safety': { p0: 0, p1: 1, p2: 0 },
+      'code-structure': { p0: 0, p1: 0, p2: 0 },
+      'code-quality': { p0: 0, p1: 0, p2: 0 },
+      'code-efficiency': { p0: 0, p1: 0, p2: 0 },
+    },
+    at: new Date().toISOString(), autonomy: 'reviewer', fallow: 'pass',
+    coverage: [{ surface: 'arquivos alterados', total: 1, inspected: 1 }],
+    verified: [{ claim: 'o fix troca o valor da constante', path: 'a.ts', line: 1, quote: 'const original = 2;' }],
+    inspected: [{ path: 'a.ts', line: 1, quote: 'const original = 2;' }],
+    findings: [{ id: 'f1', lens: 'code-safety', severity: 'P1', confidence: 90,
+      path: 'a.ts:1', title: 'valor errado', why: 'w' }],
+  };
+  await mkdir(join(root, '.lms'), { recursive: true });
+  await writeFile(join(root, '.lms', 'last.json'), JSON.stringify(card));
+
+  // Sem re-verificação: o P1 CONFIRMED bloqueia.
+  const antes = await rodarCli(root);
+  assert.equal(antes.code, 1, 'P1 CONFIRMED bloqueia sem re-verificacao');
+
+  // Re-verificação fechou f1, mesmo subject: o gate passa a ignorá-lo.
+  await writeFile(join(root, '.lms', 'reverificacao.json'), JSON.stringify({
+    subject, reviewer: 'codex', fechados: ['f1'], abertos: [], results: [],
+  }));
+  const depois = await rodarCli(root);
+  assert.equal(depois.code, 0, `achado fechado nao deve bloquear: ${depois.stderr || depois.stdout}`);
+
+  // Subject diferente NAO cruza: o bloqueio volta.
+  await writeFile(join(root, '.lms', 'reverificacao.json'), JSON.stringify({
+    subject: 'outro-subject', reviewer: 'codex', fechados: ['f1'], abertos: [], results: [],
+  }));
+  const terceiro = await rodarCli(root);
+  assert.equal(terceiro.code, 1, 'subject diferente nao cruza');
+});
