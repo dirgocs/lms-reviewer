@@ -63,6 +63,20 @@ resolve_base() {
 
 BASE_REF="${LMS_REVIEWER_BASE:-$(resolve_base)}"
 
+# Triagem antes da cadeia: diff sem caminho de execucao nao merece tres revisores.
+# Exit 10 e "dispensada" (nao e erro); qualquer outro codigo diferente de 0 e falha
+# da triagem, e falha de ferramenta NAO dispensa revisao.
+if [ "${LMS_TRIAGE:-1}" = "1" ]; then
+  set +e
+  node "$PACKAGE_ROOT/scripts/lms-triage.mjs" --base "$BASE_REF"
+  TRIAGE_RC=$?
+  set -e
+  if [ "$TRIAGE_RC" = "10" ]; then
+    echo "lms-trigger: revisao dispensada pela triagem" >&2
+    exit 0
+  fi
+fi
+
 scorecard_ok() {
   [ -f "$PACKAGE_ROOT/scripts/lms-scorecard.mjs" ] || return 1
   node "$PACKAGE_ROOT/scripts/lms-scorecard.mjs" \
