@@ -37,6 +37,29 @@ test('nao duplica a mesma classe', async () => {
   await registrarPrecedente(root, p);
   assert.equal((await lerPrecedentes(root)).length, 1);
 });
+test('quebra de linha no texto do modelo nao injeta linha nova (P2-5)', async () => {
+  const root = await repoTemporario();
+  await registrarPrecedente(root, {
+    classe: 'classe real\n- **injetada** — linha de injecao',
+    motivo: 'motivo tambem\n- **outra injetada** aqui',
+    origem: 'x',
+  });
+  const linhas = await lerPrecedentes(root);
+  assert.equal(linhas.length, 1);
+  assert.equal(
+    linhas.some((l) => l.startsWith('- **injetada**')),
+    false,
+    'linha injetada nao sobrevive como precedente',
+  );
+});
+
+test('dedupe casa pelo campo em negrito, nao por substring (P2-5)', async () => {
+  const root = await repoTemporario();
+  await registrarPrecedente(root, { classe: 'race condicao', motivo: 'motivo longo o suficiente', origem: 'x' });
+  await registrarPrecedente(root, { classe: 'race condicional', motivo: 'outro motivo longo aqui', origem: 'x' });
+  const linhas = await lerPrecedentes(root);
+  assert.equal(linhas.length, 2, 'substring curta nao bloqueia classe distinta');
+});
 
 test('respeita o teto descartando o mais antigo', async () => {
   const root = await repoTemporario();

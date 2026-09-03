@@ -40,15 +40,24 @@ export async function lerPrecedentes(root) {
 }
 
 export async function registrarPrecedente(root, { classe, motivo, origem }) {
-  const limpa = String(classe ?? '').trim();
-  const porQue = String(motivo ?? '').trim();
+  // P2-5 da revisao da Fase 2: texto de modelo nao entra verbatim. Quebra de
+  // linha com '- ' no meio injetava um precedente inteiro novo no prompt de
+  // toda revisao futura — o corpus e persistente, uma linha ruim contamina
+  // todas as rodadas seguintes.
+  const limpa = String(classe ?? '').replace(/\s+/g, ' ').trim();
+  const porQue = String(motivo ?? '').replace(/\s+/g, ' ').trim();
   if (limpa.length < 5 || porQue.length < 10) return;
 
-  const atuais = await lerPrecedentes(root);
-  if (atuais.some((linha) => linha.includes(limpa))) return;
+  // P2-5: dedupe pelo campo em negrito, nao por substring — 'race' dentro de
+  // 'race condicional' bloqueava classe distinta. E P3-1: dedupe contra o
+  // ARQUIVO inteiro, nao so as 40 que cabem no teto.
+  const todas = (await readFile(caminho(root), 'utf8').catch(() => ''))
+    .split('\n')
+    .filter((linha) => linha.startsWith('- '));
+  if (todas.some((linha) => linha.startsWith(`- **${limpa}**`))) return;
 
   const nova = `- **${limpa}** — ${porQue} _(${String(origem ?? 'lms').trim()})_`;
-  const linhas = [...atuais, nova].slice(-TETO_PRECEDENTES);
+  const linhas = [...todas, nova].slice(-TETO_PRECEDENTES);
   await mkdir(dirname(caminho(root)), { recursive: true });
   await writeFile(caminho(root), [...CABECALHO, ...linhas, ''].join('\n'), 'utf8');
 }
