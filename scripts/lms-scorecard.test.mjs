@@ -188,3 +188,19 @@ test('accepts a merge-base SHA as the base identity', () => {
     true,
   );
 });
+
+test('achado rebaixado a PLAUSIBLE nao bloqueia', () => {
+  const card = { ...validScorecard(), score: 5, p0: 0, p1: 1, p2: 0 };
+  card.lenses['code-safety'] = { p0: 0, p1: 1, p2: 0 };
+  card.findings = [{ id: 'x', lens: 'code-safety', severity: 'P1', confidence: 85,
+    path: 'a.ts:1', title: 't', why: 'w', verdict: 'PLAUSIBLE' }];
+  assert.equal(validateScorecard(card, options), true);
+});
+
+test('achado sem verdict conta como CONFIRMED e bloqueia', () => {
+  const card = { ...validScorecard(), score: 5, p0: 0, p1: 1, p2: 0 };
+  card.lenses['code-safety'] = { p0: 0, p1: 1, p2: 0 };
+  card.findings = [{ id: 'x', lens: 'code-safety', severity: 'P1', confidence: 85,
+    path: 'a.ts:1', title: 't', why: 'w' }];
+  assert.equal(validateScorecard(card, options), false);
+});

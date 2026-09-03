@@ -219,13 +219,20 @@ export async function verifiedDiskError(scorecard, root = process.cwd()) {
 /**
  * O veredito: achado pendente reprova a publicação.
  *
- * Vive separado da checagem de FORMA de propósito. Antes isto morava junto, e a
- * consequência era grave: um reviewer que fazia o trabalho certo e encontrava um
- * P1 tinha seu scorecard classificado como `invalid-output`, o runner caía para o
- * próximo provider, os três "falhavam", e o trigger liberava o push com warning.
- * O gate ficava invertido — quanto mais problema o código tinha, mais fácil passar.
+ * Com a verificacao por achado (Fase 2), "pendente" passou a ter grau. Um achado
+ * rebaixado a PLAUSIBLE por um verificador independente nao bloqueia — mas continua
+ * no scorecard, visivel, como backlog. Achado sem `verdict` conta como CONFIRMED:
+ * ausencia de verificacao nao absolve.
  */
 function verdictFindingsError(value) {
+  const findings = Array.isArray(value.findings) ? value.findings : [];
+  if (findings.length > 0) {
+    const bloqueiam = findings.filter((f) => (f.verdict ?? 'CONFIRMED') === 'CONFIRMED');
+    return bloqueiam.length > 0
+      ? `${bloqueiam.length} confirmed finding(s) remain: ${bloqueiam.slice(0, 3).map((f) => f.title).join('; ')}`
+      : null;
+  }
+  // Sem lista de achados, cai no agregado — o caminho antigo continua valendo.
   for (const field of ['p0', 'p1', 'p2']) {
     if (value[field] !== 0) return `actionable ${field} findings remain`;
   }

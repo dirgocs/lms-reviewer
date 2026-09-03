@@ -11,6 +11,11 @@ import { randomUUID } from 'node:crypto';
 import { scorecardError, scorecardFormError, findingId } from './lms-scorecard.mjs';
 import { effortPara } from './lms-effort.mjs';
 import { lerPrecedentes, registrarPrecedente } from './lms-precedentes.mjs';
+import {
+  aplicarVeredito,
+  MAX_VERIFICACOES,
+  verificarPrompt,
+} from './lms-verificar-achado.mjs';
 import { reviewSubject } from './lms-subject.mjs';
 import { inspectionError } from './lms-inspection.mjs';
 import { loadConfig, projectRoot } from './lms-config.mjs';
@@ -919,6 +924,9 @@ export async function collectHeadless({
   // O extrator padrao so aceita objeto com forma de scorecard. O contraditorio tem
   // forma propria ({refuted, confidence, ...}), entao quem chama diz como ler.
   parse = normalizeProviderOutput,
+  // O coletor por arquivo (tmux) precisa saber ONDE o verificador grava; a headless
+  // le o stdout e nao tem destino — parametro aceito e ignorado aqui.
+  outputPath: _outputPath = '',
 }) {
   const command = commandFor(provider, { ...config, base, prompt });
   const result = await runCommand({
@@ -1625,6 +1633,77 @@ async function rodarSombraDoRefutador({
   attempts.push({ provider: 'pi', result: resultadoSombra, durationMs: durationSombra });
 }
 
+const ORDEM_SEVERIDADE = { P0: 0, P1: 1, P2: 2 };
+
+/** Le o veredito com a MESMA varredura do scorecard — parser ingenuo falha aberto. */
+function parseVeredito(stdout = '', stderr = '') {
+  const aceita = (value) => 'verdict' in value;
+  const candidatos = [
+    ...candidatesFrom(stdout, new Set(), aceita),
+    ...candidatesFrom(stderr, new Set(), aceita),
+  ];
+  return candidatos.at(-1) ?? null;
+}
+
+/**
+ * Cada achado passa por um verificador independente.
+ *
+ * Falha FECHADA em todo caminho: sem verificador elegivel, com timeout, com veredito
+ * malformado ou fora do teto, o achado sai CONFIRMED e continua bloqueando. Ausencia
+ * de segunda opiniao nao absolve — mesmo principio do contraditorio e do fallow.
+ */
+async function verificarAchados({
+  root, config, env, collect, ordem, autor, provider, base, changed, scorecard, outputPathFor,
+}) {
+  const findings = Array.isArray(scorecard?.findings) ? scorecard.findings : [];
+  if (findings.length === 0) return scorecard;
+  if (env.LMS_VERIFY === '0') {
+    console.error('lms: verificacao por achado desligada por LMS_VERIFY=0');
+    return scorecard;
+  }
+
+  const porGravidade = [...findings].sort(
+    (a, b) => (ORDEM_SEVERIDADE[a.severity] ?? 9) - (ORDEM_SEVERIDADE[b.severity] ?? 9),
+  );
+  const aVerificar = porGravidade.slice(0, MAX_VERIFICACOES);
+  const excedente = porGravidade.slice(MAX_VERIFICACOES);
+
+  const verificados = await Promise.all(
+    aVerificar.map(async (finding) => {
+      const verificador = escolherRefutador({ ordem, attempts: [], provider, autor });
+      if (!verificador) {
+        return aplicarVeredito(finding, null, 'nao-verificavel');
+      }
+      const prompt = verificarPrompt(finding, base, changed);
+      const saida = await collect({
+        root, provider: verificador, config, base, prompt, env,
+        parse: parseVeredito, outputPath: outputPathFor(verificador),
+      }).catch(() => ({ kind: 'error' }));
+      if (saida.kind !== 'ok' || !saida.candidate) {
+        return aplicarVeredito(finding, null, 'nao-verificavel');
+      }
+      const veredito = { ...saida.candidate, verificador };
+      const prova = veredito.proof
+        ? await verificarProva(root, veredito.proof, env)
+        : 'nao-verificavel';
+      const resultado = aplicarVeredito(finding, veredito, prova);
+      console.error(
+        `lms: ${verificador} -> ${resultado.verdict} em "${finding.title}"`,
+      );
+      return resultado;
+    }),
+  );
+
+  const naoVerificados = excedente.map((finding) => ({
+    ...finding,
+    verdict: 'CONFIRMED',
+    verdict_by: null,
+    verdict_why: `nao verificado (teto de ${MAX_VERIFICACOES} por rodada)`,
+  }));
+
+  return { ...scorecard, findings: [...verificados, ...naoVerificados] };
+}
+
 async function contestar({
   root,
   config,
@@ -1919,6 +1998,12 @@ export async function runFallback({
     });
     attempts.push(attempt.attempt);
     if (attempt.accepted) {
+      // Verificar ANTES de contestar: o contraditorio ve os achados ja com veredito,
+      // e um achado rebaixado a PLAUSIBLE e exatamente o que ele pode atacar de volta.
+      const verificado = await verificarAchados({
+        root, config, env, collect, ordem, autor, provider, base: resolvedBase,
+        changed, scorecard: attempt.scorecard, outputPathFor,
+      });
       const contraditorio = await contestar({
         root,
         config,
@@ -1931,13 +2016,16 @@ export async function runFallback({
         changed,
         outputPathFor,
         attempts,
-        scorecard: attempt.scorecard,
+        scorecard: verificado,
         changedPaths,
         round,
         origemCommit,
         collectShadow,
       });
-      return resolverAceite({ root, env, provider, attempt, attempts, contraditorio });
+      return resolverAceite({
+        root, env, provider, attempt: { ...attempt, scorecard: verificado },
+        attempts, contraditorio,
+      });
     }
 
     // Reprovação é veredito, não falha: encerra a cadeia. Continuar seria

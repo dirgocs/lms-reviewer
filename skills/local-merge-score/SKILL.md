@@ -190,6 +190,16 @@ nenhum refutador elegível não são concordância: são ausência de segunda op
 ela não se publica — mesmo princípio que vale para o fallow. `LMS_ALLOW_UNCONTESTED=1`
 assume o risco conscientemente, como o `LMS_SKIP=1`.
 
+**Cada achado passa por um verificador, e o verificador só rebaixa.** O contraditório
+ataca o scorecard e caça falso-negativo; a verificação por achado ataca cada achado e
+caça falso-positivo — que até aqui só tinha `confidence >= 80`, declarado pelo mesmo
+agente que achou. Vereditos: `CONFIRMED` bloqueia; `PLAUSIBLE` não bloqueia mas fica no
+scorecard como backlog; `FALSE_POSITIVE` **só** com prova executável da allowlist, e
+mesmo assim o teto é `PLAUSIBLE` — nunca some. Veredito ausente, malformado, com timeout
+ou sem verificador elegível conta como `CONFIRMED`: ausência de segunda opinião não
+absolve. Teto de 5 achados por rodada, os mais graves primeiro; o resto segue bloqueando.
+`LMS_VERIFY=0` desliga assumindo o risco, como `LMS_ALLOW_UNCONTESTED=1`.
+
 **Todo aceite passa por contraditório.** A cadeia parava no primeiro scorecard
 válido, então um aceite frouxo publicava sem segunda opinião — e discordar não custava
 nada a quem aprovava. Agora um provider diferente (nem o que aprovou, nem o autor) é
