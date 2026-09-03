@@ -11,6 +11,8 @@
  * O achado é do RUNNER: só acrescenta (nunca remove), bloqueia como qualquer P1
  * e o contraditório existente pode derrubá-lo.
  */
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 
 /**
  * Classe de um achado: lens + prefixo de dois segmentos do path. Path com menos
@@ -44,7 +46,7 @@ export function classesReincidentes(historico, { janela = 3 } = {}) {
   });
 
   const reincidentes = [];
-  for (const [classe, idsPrimeira] of porRodada[0]) {
+  for (const classe of porRodada[0].keys()) {
     if (!porRodada.slice(1).every((mapa) => mapa.has(classe))) continue;
     const ids = porRodada.flatMap((mapa) => mapa.get(classe) ?? []);
     reincidentes.push({ classe, ids, rounds: rodadas.length });
@@ -71,4 +73,35 @@ export function achadoEstrutural(reincidente) {
     ],
     recurrence: { rounds: reincidente.rounds, ids: reincidente.ids },
   };
+}
+
+/**
+ * As rodadas de `.lms/history.jsonl` que carregam achados (Task 5), em ordem
+ * cronológica. Achados SINTÉTICOS (id 'classe:...') ficam FORA: o sintético é
+ * recriado pelo runner a cada rodada — contá-lo como ocorrência manteria a
+ * classe reincidente para sempre, em deadlock.
+ */
+export async function historicoDeRodadas(root) {
+  let texto;
+  try {
+    texto = await readFile(join(root, '.lms', 'history.jsonl'), 'utf8');
+  } catch {
+    return [];
+  }
+  const rodadas = [];
+  for (const linha of texto.split('\n')) {
+    if (!linha.trim()) continue;
+    let registro;
+    try {
+      registro = JSON.parse(linha);
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(registro.achados)) continue;
+    const achados = registro.achados.filter(
+      (a) => typeof a.id !== 'string' || !a.id.startsWith('classe:'),
+    );
+    if (achados.length > 0) rodadas.push({ achados });
+  }
+  return rodadas;
 }

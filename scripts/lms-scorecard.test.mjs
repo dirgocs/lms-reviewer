@@ -356,3 +356,16 @@ test('PLAUSIBLE nao pesa no score — backlog nao pontua (Task extra)', () => {
     path: 'a.ts:1', title: 't', why: 'w', verdict: 'PLAUSIBLE', verdict_by: 'codex' }];
   assert.equal(scorecardFormError(card, options), null);
 });
+
+// Fase 4 Task 6: o achado estrutural da classe recorrente (id proprio
+// 'classe:...', recurrence, acceptance de teste de classe) passa na forma.
+test('findingsShapeError aceita o achado estrutural da classe recorrente (Task 6)', () => {
+  const sintetico = {
+    id: 'classe:code-safety:services/api', lens: 'code-safety', severity: 'P1',
+    confidence: 100, path: 'services/api/', title: 'classe recorrente: code-safety em services/api',
+    why: 'reincidiu em 3 rodadas', found_by: 'runner',
+    acceptance: ['um teste que feche a CLASSE — corrigir so as ocorrencias nao fecha'],
+    recurrence: { rounds: 3, ids: ['a', 'b', 'c'] },
+  };
+  assert.equal(findingsShapeError({ findings: [sintetico] }), null);
+});

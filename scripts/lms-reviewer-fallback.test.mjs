@@ -1708,3 +1708,30 @@ test('historico da rodada carrega os achados com lens, path e id (Task 5)', asyn
     await rm(root, { recursive: true, force: true });
   }
 });
+
+// Fase 4 Task 6: a classe recorrente (3 rodadas consecutivas na mesma
+// lens+prefixo) vira achado estrutural do runner — bloqueia como qualquer P1
+// CONFIRMADO e a rodada e rejeitada com o campo nomeado.
+test('classe recorrente injeta achado estrutural e rejeita a rodada (Task 6)', async () => {
+  const { root, env } = await fixture();
+  try {
+    const achados = { lens: 'code-safety', path: 'services/api/src/rooms.ts:10', id: 'k1' };
+    const linhas = [1, 2, 3].map(() => JSON.stringify({
+      provider: 'grok', result: 'rejected', achados: [achados],
+    }));
+    await mkdir(join(root, '.lms'), { recursive: true });
+    await writeFile(join(root, '.lms', 'history.jsonl'), linhas.join('\n') + '\n');
+
+    const r = await runFallback({ root, base, env });
+    assert.equal(r.ok, false, 'o sintetico bloqueia como qualquer P1');
+    assert.equal(r.rejectedBy, 'claude');
+    const gravado = JSON.parse(await readFile(join(root, '.lms', 'last.json'), 'utf8'));
+    const sintetico = gravado.findings.find((f) => f.id.startsWith('classe:'));
+    assert.ok(sintetico, 'o achado estrutural fica gravado');
+    assert.equal(sintetico.severity, 'P1');
+    assert.equal(sintetico.found_by, 'runner');
+    assert.match(sintetico.acceptance[0], /CLASSE/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

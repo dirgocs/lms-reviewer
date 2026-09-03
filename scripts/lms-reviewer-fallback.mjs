@@ -18,6 +18,11 @@ import { effortPara } from './lms-effort.mjs';
 import { lerPrecedentes, registrarPrecedente } from './lms-precedentes.mjs';
 import { autoresPorArquivo, providerPodeRevisar } from './lms-fix-autoria.mjs';
 import {
+  achadoEstrutural,
+  classesReincidentes,
+  historicoDeRodadas,
+} from './lms-classe-recorrente.mjs';
+import {
   aplicarVeredito,
   MAX_VERIFICACOES,
   verificarPrompt,
@@ -1107,6 +1112,17 @@ export async function attemptProvider({
       };
     }
     break;
+  }
+
+  // Fase 4 Task 6: classe recorrente — o runner ACRESCENTA o achado estrutural
+  // antes do veredito. CONFIRMED, entao a rodada e rejeitada com o campo nomeado
+  // e o scorecard gravado bloqueia; o contraditorio pode derruba-lo como
+  // qualquer achado. So acrescenta: nunca mexe em score/aggregate/coverage.
+  const reincidentes = classesReincidentes(await historicoDeRodadas(root));
+  for (const reincidente of reincidentes) {
+    const sintetico = achadoEstrutural(reincidente);
+    console.error(`lms: achado estrutural (classe recorrente): ${sintetico.title}`);
+    scorecard.findings = [...(scorecard.findings ?? []), sintetico];
   }
 
   // Política de severidade (LMS_SEVERITY_POLICY=1): P2 do reviewer com confianca >= 80

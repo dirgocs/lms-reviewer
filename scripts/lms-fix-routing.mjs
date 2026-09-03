@@ -59,6 +59,11 @@ const PEDE_DECISAO = /\b(decid|avali|discut|considerar se|remover a rota|repensa
 const MIN_FIX = 20;
 
 export function corrigivelPeloRevisor(finding) {
+  // Fase 4 Task 6: fix pontual nao fecha classe recorrente — o acceptance do
+  // achado estrutural exige o teste da CLASSE, decisao de desenho do orquestrador.
+  if (finding?.recurrence) {
+    return { ok: false, motivo: 'classe recorrente exige decisao de desenho' };
+  }
   const arquivos = arquivosDoAchado(finding);
   if (arquivos.length === 0) return { ok: false, motivo: 'achado sem arquivo citado' };
   if (arquivos.some(caminhoProibido)) {

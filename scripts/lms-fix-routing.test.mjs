@@ -73,3 +73,16 @@ test('denylist cobre o mapeamento inteiro que ela documenta (P2-4)', () => {
   // e o roteador nunca manda o revisor corrigir o proprio pacote
   assert.equal(corrigivelPeloRevisor(achado({ path: '.agents/skills/local-merge-score/SKILL.md:1' })).ok, false);
 });
+
+// Fase 4 Task 6: fix pontual nao fecha classe recorrente — vai para o orquestrador.
+test('classe recorrente nao e corrigivel pelo revisor (Task 6)', () => {
+  const r = corrigivelPeloRevisor(achado({
+    id: 'classe:code-safety:services/api',
+    path: 'services/api/',
+    title: 'classe recorrente: code-safety em services/api',
+    fix: 'escrever o teste que fecha a classe e rodar as correcoes sob ele',
+    recurrence: { rounds: 3, ids: ['a', 'b', 'c'] },
+  }));
+  assert.equal(r.ok, false);
+  assert.match(r.motivo, /classe recorrente/i);
+});
