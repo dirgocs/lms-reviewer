@@ -31,6 +31,9 @@ function lensError(lens, nome) {
   for (const field of ['p0', 'p1', 'p2']) {
     if (!isNonNegativeInteger(lens[field])) return `invalid findings for ${nome}`;
   }
+  if (lens.applicable !== undefined && typeof lens.applicable !== 'boolean') {
+    return `${nome} has a non-boolean "applicable" — use true, false or omit it (P3-3)`;
+  }
   if (lens.applicable === false) {
     if (typeof lens.na_reason !== 'string' || lens.na_reason.trim().length < MIN_NA_REASON) {
       return `${nome} is marked applicable: false and needs a "na_reason" explaining why`;
@@ -75,7 +78,12 @@ function scoreIntegerError(value) {
 }
 
 function scoreTargetError(value) {
-  return value.target === 5 && value.score >= value.target ? null : 'score must meet target 5';
+  // P3-2 da revisao da Fase 1: score sem teto — 99/5 passava. A rubrica e 0-5,
+  // e o veredito continua exigindo que o score ATINGIA o target 5.
+  const valid =
+    value.target === 5 &&
+    Number.isInteger(value.score) && value.score >= value.target && value.score <= 5;
+  return valid ? null : 'score must meet target 5 (integer 0-5)';
 }
 
 function aggregateFieldError(value) {
@@ -187,6 +195,11 @@ export function findingsShapeError(value) {
   for (const finding of findings) {
     if (!finding || typeof finding !== 'object' || Array.isArray(finding)) {
       return 'each finding must be an object';
+    }
+    // P3-4 da revisao da Fase 1: `findingId` hasheia a lens — sem ela declarada,
+    // dois achados de lentes diferentes com o mesmo arquivo/titulo colidem no id.
+    if (!LENSES.includes(finding.lens)) {
+      return `finding "${finding.title ?? '?'}" needs a lens: one of ${LENSES.join(', ')}`;
     }
     if (!SEVERIDADES.has(finding.severity)) {
       return `finding "${finding.title ?? '?'}" needs severity P0, P1 or P2`;

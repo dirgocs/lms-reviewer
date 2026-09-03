@@ -795,8 +795,14 @@ function neutralizarP2(scorecard, enfileirados) {
   proximo.p2 -= enfileirados.length;
   for (const achado of enfileirados) {
     const lens = LENSES.includes(achado.lens) ? achado.lens : 'code-quality';
-    if (proximo.lenses[lens]) proximo.lenses[lens].p2 -= 1;
+    if (proximo.lenses[lens]) {
+      // P3-5 da revisao da Fase 1: contador inconsistente (achado listado com p2
+      // agregado 0) nao pode deixar a lente negativa — virava rejeicao sem causa
+      // aparente. Clampa em 0; a lista e a fonte da verdade (achado da rodada 91).
+      proximo.lenses[lens].p2 = Math.max(0, proximo.lenses[lens].p2 - 1);
+    }
   }
+  proximo.p2 = Math.max(0, proximo.p2);
   proximo.score = Math.max(proximo.score, 5);
   return proximo;
 }

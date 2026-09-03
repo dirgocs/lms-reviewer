@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-import { findingId, findingsShapeError, scorecardFormError, validateScorecard, coverageDiffError } from './lms-scorecard.mjs';
+import { coverageDiffError, findingsShapeError, findingId, scorecardFormError, validateScorecard } from './lms-scorecard.mjs';
 
 const now = Date.parse('2026-07-10T00:00:00.000Z');
 const options = {
@@ -257,6 +257,30 @@ test('achado CONFIRMED bloqueia mesmo com agregado coerente (P1-1)', () => {
   card.findings = [{ id: 'x', lens: 'code-safety', severity: 'P1', confidence: 95,
     path: 'a.ts:1', title: 'falta tenant', why: 'w', verdict: 'CONFIRMED' }];
   assert.equal(validateScorecard(card, options), false);
+});
+
+// P3 da revisao da Fase 1: endurecimento barato do validador.
+test('score tem teto 5 (P3-2)', () => {
+  assert.equal(validateScorecard({ ...validScorecard(), score: 99 }, options), false);
+});
+
+test('applicable nao-booleano e reprovado (P3-3)', () => {
+  const card = validScorecard();
+  card.lenses['code-efficiency'] = {
+    p0: 0, p1: 0, p2: 0,
+    applicable: 'false', na_reason: 'diff so de documentacao aqui',
+  };
+  assert.match(scorecardFormError(card, options), /applicable/);
+});
+
+test('achado com lens ausente ou desconhecida e reprovado (P3-4)', () => {
+  const achado = { severity: 'P1', confidence: 90, path: 'a.ts:1', title: 't', why: 'w' };
+  assert.match(findingsShapeError({ findings: [achado] }), /lens/);
+  assert.match(findingsShapeError({ findings: [{ ...achado, lens: 'security' }] }), /lens/);
+  assert.equal(
+    findingsShapeError({ findings: [{ ...achado, lens: 'code-safety' }] }),
+    null,
+  );
 });
 
 // P2-4: alguma superficie declarada tem de cobrir o diff inteiro.
