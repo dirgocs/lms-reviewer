@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-import { findingId, findingsShapeError, scorecardFormError, validateScorecard } from './lms-scorecard.mjs';
+import { findingId, findingsShapeError, scorecardFormError, validateScorecard, coverageDiffError } from './lms-scorecard.mjs';
 
 const now = Date.parse('2026-07-10T00:00:00.000Z');
 const options = {
@@ -104,6 +104,13 @@ test('recusa superficie sem descricao', () => {
 
 test('aceita coverage bem formado', () => {
   assert.equal(scorecardFormError(validScorecard(), options), null);
+});
+
+// P2-4 da revisao da Fase 1: esforco zero nao satisfaz o denominador.
+test('recusa coverage que declara esforco zero', () => {
+  const card = validScorecard();
+  card.coverage = [{ surface: 'rotas do envelope', total: 0, inspected: 0 }];
+  assert.match(scorecardFormError(card, options), /total >= 1/);
 });
 
 test('exige verified com pelo menos uma asercao', () => {
@@ -250,4 +257,13 @@ test('achado CONFIRMED bloqueia mesmo com agregado coerente (P1-1)', () => {
   card.findings = [{ id: 'x', lens: 'code-safety', severity: 'P1', confidence: 95,
     path: 'a.ts:1', title: 'falta tenant', why: 'w', verdict: 'CONFIRMED' }];
   assert.equal(validateScorecard(card, options), false);
+});
+
+// P2-4: alguma superficie declarada tem de cobrir o diff inteiro.
+test('exige uma superficie que cubra o diff (P2-4)', () => {
+  const card = validScorecard();
+  card.coverage = [{ surface: 'rotas do envelope', total: 2, inspected: 2 }];
+  assert.match(coverageDiffError(card, new Set(['a.ts', 'b.ts', 'c.ts'])), /3 changed file/);
+  assert.equal(coverageDiffError(validScorecard(), new Set(['a.ts', 'b.ts', 'c.ts'])), null);
+  assert.equal(coverageDiffError(validScorecard(), new Set()), null);
 });

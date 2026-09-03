@@ -132,7 +132,29 @@ function coverageError(value) {
       return `coverage entry "${entry.surface}" has inspected (${entry.inspected}) greater than total (${entry.total})`;
     }
   }
+  // P2-4 da revisao da Fase 1: {total: 0, inspected: 0} satisfazia o campo inteiro
+  // sem declarar varredura nenhuma — denominador de mentira e pior que ausencia.
+  if (!coverage.some((entry) => entry.total >= 1 && entry.inspected >= 1)) {
+    return 'coverage must include at least one surface with total >= 1 and inspected >= 1';
+  }
   return null;
+}
+
+/**
+ * A superficie declarada cobre o diff que o gate esta conferindo? (P2-4)
+ *
+ * O CLI sabe quantos arquivos abriveis o diff toca; sem este cruzamento, um
+ * scorecard de outro diff satisfaz coverage com numeros que so existem na
+ * imaginacao de quem escreveu. Exige UMA entrada com total >= arquivos do diff.
+ */
+export function coverageDiffError(scorecard, changedPaths) {
+  const total = changedPaths?.size ?? 0;
+  if (total === 0) return null;
+  const coverage = Array.isArray(scorecard.coverage) ? scorecard.coverage : [];
+  const cobre = coverage.some((entry) => Number.isInteger(entry?.total) && entry.total >= total);
+  return cobre
+    ? null
+    : `coverage must declare a surface whose total covers the ${total} changed file(s)`;
 }
 
 const SEVERIDADES = new Set(['P0', 'P1', 'P2']);
@@ -410,13 +432,16 @@ async function validateFile(args) {
     // O caminho do scorecard EM CACHE tambem confere as citacoes no disco. Validar
     // so a forma deixava fabricar prova citando arquivo inexistente — furo apontado
     // pelo reviewer (codex, P1 conf=98).
-    const proofError = await inspectionError(
-      value,
-      await changedOpenablePaths(process.cwd(), args.base),
-      process.cwd(),
-    );
+    const abriveis = await changedOpenablePaths(process.cwd(), args.base);
+    const proofError = await inspectionError(value, abriveis, process.cwd());
     if (proofError) {
       console.error(`invalid LMS scorecard: ${proofError}`);
+      process.exitCode = 1;
+    }
+    // P2-4: a cobertura declarada tem de dar conta do diff real.
+    const coverageDiff = coverageDiffError(value, abriveis);
+    if (coverageDiff) {
+      console.error(`invalid LMS scorecard: ${coverageDiff}`);
       process.exitCode = 1;
     }
     const verifiedError = await verifiedDiskError(value, process.cwd());
