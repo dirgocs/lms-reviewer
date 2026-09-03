@@ -280,6 +280,32 @@ test('retryPrompt carrega a mensagem de validacao e o prompt original', () => {
   assert.match(p, /rejected/i);
 });
 
+// Fase 3 Task 3: o sandbox e o que garante a restricao do fix — nao a instrucao em prosa.
+test('modo review mantem o codex em read-only', () => {
+  const c = commandFor('codex', { models: { codex: 'm' }, bins: { codex: 'b' }, codexEffort: 'high', prompt: 'x' });
+  assert.equal(c.args.includes('read-only'), true);
+});
+
+test('modo fix da escrita de workspace ao codex, nunca acesso total', () => {
+  const c = commandFor('codex', { models: { codex: 'm' }, bins: { codex: 'b' }, codexEffort: 'xhigh', prompt: 'x' }, { modo: 'fix' });
+  assert.equal(c.args.includes('workspace-write'), true);
+  assert.equal(c.args.includes('read-only'), false);
+  assert.equal(c.args.some((a) => String(a).includes('danger')), false);
+});
+
+test('modo fix libera Edit e Write no claude, e so eles', () => {
+  const c = commandFor('claude', { models: { claude: 'm' }, bins: { claude: 'b' }, prompt: 'x' }, { modo: 'fix' });
+  const tools = c.args[c.args.indexOf('--tools') + 1];
+  assert.match(tools, /Edit/);
+  assert.match(tools, /Write/);
+  assert.equal(/Bash/.test(tools), false);
+});
+
+test('modo review nao libera Edit no claude', () => {
+  const c = commandFor('claude', { models: { claude: 'm' }, bins: { claude: 'b' }, prompt: 'x' });
+  assert.equal(/Edit/.test(c.args[c.args.indexOf('--tools') + 1]), false);
+});
+
 // P3-1 da revisao da Fase 1: com maxTentativas configuravel, o wrapper aninhava —
 // cada volta empilhava outro bloco de instrucoes originais.
 test('retentativas nao aninham o wrapper (P3-1)', async () => {

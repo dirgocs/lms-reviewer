@@ -81,9 +81,19 @@ export function providerConfig(env = process.env, { paths = [] } = {}) {
   };
 }
 
-export function commandFor(provider, config) {
+/**
+ * Comando do provider. `modo: 'fix'` troca o sandbox — e so ele.
+ *
+ * Pontuar e corrigir sao invocacoes separadas de proposito: um revisor que pontua e
+ * corrige no mesmo turno tem incentivo a achar o que ele gosta de consertar.
+ *
+ * Escrita e de WORKSPACE, nunca total. O sandbox e o que garante a restricao; a
+ * instrucao em prosa "nao mexa em outros arquivos" nunca garantiu nada.
+ */
+export function commandFor(provider, config, { modo = 'review' } = {}) {
   const model = config.models[provider];
   const common = { command: config.bins[provider], input: config.prompt };
+  const corrigindo = modo === 'fix';
   if (provider === 'claude') {
     return {
       ...common,
@@ -103,9 +113,9 @@ export function commandFor(provider, config) {
         'json',
         '--no-session-persistence',
         '--permission-mode',
-        'plan',
+        corrigindo ? 'acceptEdits' : 'plan',
         '--tools',
-        'Read,Grep,Glob',
+        corrigindo ? 'Read,Grep,Glob,Edit,Write' : 'Read,Grep,Glob',
       ],
     };
   }
@@ -124,9 +134,11 @@ export function commandFor(provider, config) {
         '--output-format',
         'json',
         '--permission-mode',
-        'plan',
+        // Bash fica de fora tambem no fix: editar arquivo nao precisa de shell, e
+        // shell e como um fix estoura o escopo sem passar pela guarda.
+        corrigindo ? 'acceptEdits' : 'plan',
         '--tools',
-        'Read,Grep,Glob',
+        corrigindo ? 'Read,Grep,Glob,Edit,Write' : 'Read,Grep,Glob',
       ],
       input: null,
     };
@@ -164,11 +176,11 @@ export function commandFor(provider, config) {
         model,
         '-c',
         `model_reasoning_effort="${config.codexEffort ?? 'xhigh'}"`,
-        // Sandbox read-only: o codex le arquivos executando shell (cat, sed), entao
-        // ele PRECISA de shell. O que nao pode e mutacao — e isso o sandbox garante,
-        // melhor do que uma instrucao em prosa.
+        // Sandbox: read-only para revisar (o codex le executando shell, o que nao
+        // pode e mutacao); workspace-write APENAS no fix mode (Fase 3) — escrita
+        // no workspace, nunca acesso total.
         '-s',
-        'read-only',
+        corrigindo ? 'workspace-write' : 'read-only',
         '--json',
         config.prompt,
       ],
@@ -947,8 +959,11 @@ export async function collectHeadless({
   // O coletor por arquivo (tmux) precisa saber ONDE o verificador grava; a headless
   // le o stdout e nao tem destino — parametro aceito e ignorado aqui.
   outputPath: _outputPath = '',
+  // `modo` sai daqui para commandFor. Default 'review': quem nao pede escrita
+  // continua read-only, e nenhum caminho existente muda de permissao por acidente.
+  modo = 'review',
 }) {
-  const command = commandFor(provider, { ...config, base, prompt });
+  const command = commandFor(provider, { ...config, base, prompt }, { modo });
   const result = await runCommand({
     ...command,
     cwd: root,
