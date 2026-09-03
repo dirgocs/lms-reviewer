@@ -20,6 +20,7 @@ test('v1.3 expoe todos os comandos usados pelo consumidor', () => {
     'lms-fix': './scripts/lms-fix.mjs',
     'lms-reverificar': './scripts/lms-reverificar.mjs',
     'lms-eval': './scripts/lms-eval.mjs',
+    'lms-triage-bug': './scripts/lms-triage-bug.mjs',
   });
 });
 

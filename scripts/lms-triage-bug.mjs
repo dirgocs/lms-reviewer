@@ -12,11 +12,19 @@
  * CLI: `lms-triage-bug sinal.log` ou `kubectl logs … | lms-triage-bug`.
  */
 import { createHash } from 'node:crypto';
-import { access, readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
 
 import { citationShapeError, citationsDiskError } from './lms-inspection.mjs';
 import { findingsShapeError, findingId } from './lms-scorecard.mjs';
+import { verificarAchados, providerConfig, collectHeadless } from './lms-reviewer-fallback.mjs';
+import { loadConfig } from './lms-config.mjs';
+import { corrigivelPeloRevisor } from './lms-fix-routing.mjs';
+import {
+  agenteCommitado,
+  carregarAgentes,
+  escolherAgente,
+} from './lms-bug-agents.mjs';
 
 /**
  * Tags de padrões ESTRUTURAIS agnósticos (código HTTP, nome de exceção,
@@ -187,3 +195,121 @@ export function achadoDoSinal(parsed, sinal, agente, provider) {
   if (erro) throw new Error(`achado da triagem inválido: ${erro}`);
   return achado;
 }
+
+// Task 4 da Fase 5: wiring — o achado da triagem passa SEMPRE pelo verificador da
+// Fase 2. LMS_VERIFY=0 recusa a triagem inteira (exit 1): abrir issue sem
+// contraditório é o buraco. Nenhum veredito novo: CONFIRMED = verificado,
+// PLAUSIBLE = backlog (nunca some), FALSE_POSITIVE provado = recusado.
+export async function runTriageBug({
+  root = process.cwd(),
+  env = process.env,
+  collect = collectHeadless,
+  argv = [],
+} = {}) {
+  if (String(env.LMS_VERIFY ?? '1') === '0') {
+    const motivo = 'LMS_VERIFY=0 — abrir issue sem contraditório é o buraco';
+    console.error(`lms-triage-bug: recusada — ${motivo}`);
+    return { exitCode: 1, motivo, abertos: [], fechados: [] };
+  }
+
+  // Sinal: arquivo (argv[0]) ou stdin. Nada mais — sem coleta, sem watcher.
+  const caminhoSinal = argv[0];
+  let texto = '';
+  let origem = 'stdin';
+  if (caminhoSinal) {
+    origem = `arquivo:${resolve(root, caminhoSinal)}`;
+    texto = await readFile(resolve(root, caminhoSinal), 'utf8');
+  }
+
+  const config = loadConfig(root);
+  const sinalBase = normalizarSinal(texto, origem);
+  sinalBase.caminhos_citados = await caminhosDoSinal(texto, root);
+
+  const agentes = await carregarAgentes(root, config.bugAgents.dir);
+  const agente = escolherAgente(agentes, sinalBase);
+  if (agente) {
+    const guarda = await agenteCommitado(root, agente.arquivo);
+    if (!guarda.commitado) {
+      const motivo = `agente '${agente.nome}' não está commitado (${guarda.estado})`;
+      console.error(`lms-triage-bug: recusada — ${motivo}`);
+      return { exitCode: 1, motivo, abertos: [], fechados: [] };
+    }
+  }
+
+  if (!sinalBase.texto.trim() || (sinalBase.caminhos_citados.length === 0 && !agente)) {
+    const motivo = [
+      sinalBase.texto.trim() ? null : 'sinal vazio',
+      sinalBase.caminhos_citados.length === 0 ? 'nenhum caminho existente citado no sinal' : null,
+      agente ? null : 'nenhum agente casa com o sinal (rode lms-triage-bug --init)',
+    ].filter(Boolean).join('; ');
+    console.error(`lms-triage-bug: recusada — ${motivo}`);
+    return { exitCode: 2, motivo, abertos: [], fechados: [] };
+  }
+
+  const chainConfig = providerConfig(env);
+  const provider = chainConfig.order[0];
+  const prompt = triagemPrompt(sinalBase, agente, []);
+  const saida = await collect({
+    root, provider, config: chainConfig, base: 'HEAD', env,
+    prompt, parse: parseTriagem,
+  }).catch(() => ({ kind: 'error' }));
+  const relato = saida.kind === 'ok' ? saida.candidate : null;
+  if (!relato) {
+    const motivo = 'triagem sem relato parseável (fail-closed)';
+    console.error(`lms-triage-bug: recusada — ${motivo}`);
+    return { exitCode: 1, motivo, abertos: [], fechados: [] };
+  }
+
+  const achado = achadoDoSinal(relato, sinalBase, agente, provider);
+
+  // Verificador adversarial da Fase 2: ordena, respeita MAX_VERIFICACOES e chama
+  // aplicarVeredito. CONFIRMED = verificado; PLAUSIBLE = backlog (nunca some).
+  const mini = { reviewer: provider, base: 'HEAD', findings: [achado] };
+  const verificado = await verificarAchados({
+    root,
+    config: chainConfig,
+    env,
+    collect,
+    ordem: chainConfig.order,
+    autor: '',
+    provider,
+    base: 'HEAD',
+    changed: sinalBase.caminhos_citados.join(', '),
+    scorecard: mini,
+    outputPathFor: (p) => join(root, '.lms', `bug-verificacao-${p}.json`),
+    attempts: [],
+  });
+  const final = verificado.findings[0];
+  const outcome = final.verdict === 'CONFIRMED'
+    ? 'verificado'
+    : final.verdict === 'PLAUSIBLE' ? 'backlog' : 'recusado';
+
+  // Rota: escalar_para do agente vence quando declarado (Task 6 aprofunda o
+  // rastreador); senão a regra da Fase 3 decide como sempre.
+  const rota = agente?.escalar_para
+    ?? (corrigivelPeloRevisor(final).ok ? 'revisor' : 'orquestrador');
+
+  const registro = {
+    at: new Date().toISOString(),
+    outcome,
+    rota,
+    agente: agente?.nome ?? null,
+    verificador: true,
+    achado: final,
+  };
+  await mkdir(join(root, '.lms'), { recursive: true });
+  await writeFile(
+    join(root, '.lms', `bug-${final.id}.json`),
+    `${JSON.stringify(registro, null, 2)}\n`,
+    'utf8',
+  );
+  return { ...registro, exitCode: 0 };
+}
+
+async function main() {
+  const resultado = await runTriageBug({ root: process.cwd(), env: process.env, argv: process.argv.slice(2) });
+  console.log(JSON.stringify(resultado, null, 2));
+  process.exitCode = resultado.exitCode ?? 0;
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) await main();

@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile as execFileCallback } from 'node:child_process';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
+import { runTriageBug } from './lms-triage-bug.mjs';
 import {
   achadoDoSinal,
   caminhosDoSinal,
@@ -93,4 +94,66 @@ test('achadoDoSinal: path sem linha ou inexistente no disco e recusado (Task 3)'
     /linha/i,
   );
   await rm(root, { recursive: true, force: true });
+});
+
+async function repoComSinal() {
+  const root = await mkdtemp(join(tmpdir(), 'lms-triage-run-'));
+  await execFile('git', ['init', '-q'], { cwd: root });
+  await execFile('git', ['config', 'user.email', 'lms@test'], { cwd: root });
+  await execFile('git', ['config', 'user.name', 'lms'], { cwd: root });
+  await mkdir(join(root, 'workers'), { recursive: true });
+  await writeFile(join(root, 'workers', 'x.py'), 'linha1\nlinha2\nlinha3\n');
+  await writeFile(join(root, 'sinal.log'), 'HTTP 500 em workers/x.py:2\ncStat 656\n');
+  const dir = join(root, '.agents', 'bug-triage');
+  await mkdir(dir, { recursive: true });
+  await writeFile(
+    join(dir, 'workers.md'),
+    '---\nnome: workers\ndescricao: workers\nmatch:\n  paths:\n    - "^workers/"\n---\n\nTriar workers.\n',
+  );
+  await execFile('git', ['add', '.'], { cwd: root });
+  await execFile('git', ['commit', '-qm', 'repo com agente commitado'], { cwd: root });
+  return root;
+}
+
+// Task 4 da Fase 5: o achado da triagem passa SEMPRE pelo verificador da Fase 2
+// (LMS_VERIFY=0 recusa a triagem inteira) e grava .lms/bug-<id>.json. Nenhum
+// veredito novo: CONFIRMED = verificado; PLAUSIBLE = backlog (nunca some).
+test('runTriageBug: sinal vira achado verificado e gravado (Task 4)', async () => {
+  const root = await repoComSinal();
+  const collect = async ({ prompt }) => {
+    if (prompt.includes('DEMOLISH')) {
+      // Verificador real ecoa o id do achado (fail-closed da Fase 3: id divergente
+      // conta como CONFIRMED).
+      const id = (prompt.match(/"id": "([^"]+)"/) ?? [])[1] ?? '???';
+      return { kind: 'ok', candidate: { id, verdict: 'PLAUSIBLE', why: 'nao reproduzi' } };
+    }
+    return {
+      kind: 'ok',
+      candidate: { path: 'a.py:2', lens: 'code-safety', title: 'quebra no worker', why: 'o stack cita a.py:2', fix: 'corrigir o loop' },
+    };
+  };
+  const r = await runTriageBug({ root, env: {}, collect, argv: [join(root, 'sinal.log')] });
+  assert.equal(r.achado.path, 'a.py:2');
+  assert.equal(r.outcome, 'backlog', 'PLAUSIBLE vira backlog e nao some');
+  assert.equal(r.verificador, true, 'passou pelo verificador');
+  const gravado = JSON.parse(await readFile(join(root, '.lms', `bug-${r.achado.id}.json`), 'utf8'));
+  assert.equal(gravado.outcome, 'backlog');
+  assert.equal(gravado.achado.id, r.achado.id);
+});
+
+test('runTriageBug: LMS_VERIFY=0 recusa a triagem inteira (Task 4)', async () => {
+  const root = await repoComSinal();
+  let chamou = false;
+  const collect = async () => { chamou = true; return { kind: 'ok', candidate: null }; };
+  const r = await runTriageBug({ root, env: { LMS_VERIFY: '0' }, collect, argv: [join(root, 'sinal.log')] });
+  assert.equal(r.exitCode, 1);
+  assert.equal(chamou, false, 'abrir issue sem contraditorio e o buraco');
+});
+
+test('runTriageBug: sinal vazio recusa com exit 2 (Task 4)', async () => {
+  const root = await repoComSinal();
+  await writeFile(join(root, 'sinal.log'), '');
+  const r = await runTriageBug({ root, env: {}, collect: async () => ({ kind: 'ok', candidate: null }), argv: [join(root, 'sinal.log')] });
+  assert.equal(r.exitCode, 2);
+  assert.match(r.motivo, /caminho|agente|sinal/i);
 });

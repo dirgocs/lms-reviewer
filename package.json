@@ -17,6 +17,7 @@
     "lms-reverificar": "./scripts/lms-reverificar.mjs",
     "lms-reviewer": "./scripts/lms-reviewer-spawn.sh",
     "lms-reviewer-tmux": "./scripts/lms-reviewer-tmux.mjs",
+    "lms-triage-bug": "./scripts/lms-triage-bug.mjs",
     "lms-trigger": "./scripts/lms-reviewer-trigger.sh"
   },
   "scripts": {
@@ -26,7 +27,8 @@
     "lms:trigger": "bash scripts/lms-reviewer-trigger.sh",
     "lms:fix": "node scripts/lms-fix.mjs",
     "lms:reverificar": "node scripts/lms-reverificar.mjs",
-    "lms:eval": "node scripts/lms-eval.mjs"
+    "lms:eval": "node scripts/lms-eval.mjs",
+    "lms:triage:bug": "node scripts/lms-triage-bug.mjs"
   },
   "files": [
     "scripts/",
