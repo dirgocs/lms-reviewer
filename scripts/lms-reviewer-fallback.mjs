@@ -1676,7 +1676,7 @@ function parseVeredito(stdout = '', stderr = '') {
  * de segunda opiniao nao absolve — mesmo principio do contraditorio e do fallow.
  */
 async function verificarAchados({
-  root, config, env, collect, ordem, autor, provider, base, changed, scorecard, outputPathFor,
+  root, config, env, collect, ordem, autor, provider, base, changed, scorecard, outputPathFor, attempts,
 }) {
   const findings = Array.isArray(scorecard?.findings) ? scorecard.findings : [];
   if (findings.length === 0) return scorecard;
@@ -1691,31 +1691,55 @@ async function verificarAchados({
   const aVerificar = porGravidade.slice(0, MAX_VERIFICACOES);
   const excedente = porGravidade.slice(MAX_VERIFICACOES);
 
-  const verificados = await Promise.all(
-    aVerificar.map(async (finding) => {
-      const verificador = escolherRefutador({ ordem, attempts: [], provider, autor });
-      if (!verificador) {
-        return aplicarVeredito(finding, null, 'nao-verificavel');
-      }
-      const prompt = verificarPrompt(finding, base, changed);
-      const saida = await collect({
-        root, provider: verificador, config, base, prompt, env,
-        parse: parseVeredito, outputPath: outputPathFor(verificador),
-      }).catch(() => ({ kind: 'error' }));
-      if (saida.kind !== 'ok' || !saida.candidate) {
-        return aplicarVeredito(finding, null, 'nao-verificavel');
-      }
-      const veredito = { ...saida.candidate, verificador };
-      const prova = veredito.proof
-        ? await verificarProva(root, veredito.proof, env)
-        : 'nao-verificavel';
-      const resultado = aplicarVeredito(finding, veredito, prova);
-      console.error(
-        `lms: ${verificador} -> ${resultado.verdict} em "${finding.title}"`,
-      );
-      return resultado;
-    }),
-  );
+  // P1-2 da revisao da Fase 2: SEQUENCIAL, em vez de Promise.all. No caminho de
+  // producao (coleta por arquivo/tmux) todas as chamadas com o MESMO provider
+  // disputavam o MESMO prompt e o MESMO arquivo de candidato — o ultimo veredito
+  // era lido por todas as verificacoes. Um por vez, com o id conferido por
+  // aplicarVeredito, nao ha cruzamento.
+  const verificados = [];
+  for (const finding of aVerificar) {
+    // P2-4: o historico da rodada vale aqui tambem — provider que nem rodou nao
+    // verifica (cada tentativa paga o timeout inteiro e produz "sem segunda
+    // opiniao" com carimbo de verificacao).
+    const verificador = escolherRefutador({ ordem, attempts, provider, autor });
+    if (!verificador) {
+      verificados.push(aplicarVeredito(finding, null, 'nao-verificavel'));
+      continue;
+    }
+    const prompt = verificarPrompt(finding, base, changed);
+    const saida = await collect({
+      root, provider: verificador, config: { ...config, papel: 'verificador' }, base, prompt, env,
+      parse: parseVeredito, outputPath: outputPathFor(verificador),
+    }).catch(() => ({ kind: 'error' }));
+    if (saida.kind !== 'ok' || !saida.candidate) {
+      verificados.push(aplicarVeredito(finding, null, 'nao-verificavel'));
+      continue;
+    }
+    const veredito = { ...saida.candidate, verificador };
+    const prova = veredito.proof
+      ? await verificarProva(root, veredito.proof, env)
+      : 'nao-verificavel';
+    const resultado = aplicarVeredito(finding, veredito, prova);
+    console.error(
+      `lms: ${verificador} -> ${resultado.verdict} em "${finding.title}"`,
+    );
+    // P1-1 da revisao da Fase 2: quem DERRUBA um achado e o verificador — a
+    // refutacao do contraditorio PROVA defeitos reais (derrubam o ACEITE), entao
+    // registrar a classe dela no corpus "nao reporte" suprimia vazamentos reais
+    // provados. Precedente so nasce de FALSE_POSITIVE com prova executavel.
+    if (
+      veredito.verdict === 'FALSE_POSITIVE' &&
+      prova === 'confirmada' &&
+      typeof finding.title === 'string' && finding.title.trim()
+    ) {
+      await registrarPrecedente(root, {
+        classe: finding.title,
+        motivo: veredito.why ?? 'derrubado pelo verificador com prova executavel',
+        origem: `${verificador} ${new Date().toISOString().slice(0, 10)}`,
+      });
+    }
+    verificados.push(resultado);
+  }
 
   const naoVerificados = excedente.map((finding) => ({
     ...finding,
@@ -1841,18 +1865,7 @@ async function contestar({
     };
   }
 
-  // Refutacao vencedora vira precedente: a proxima rodada nao re-litiga a classe.
-  // Registrar so quando derrubou de fato — refutacao nao comprovada nao ensina nada.
-  if (derrubouEfetivo && veredito?.title) {
-    await registrarPrecedente(root, {
-      classe: veredito.title,
-      motivo: veredito.why ?? 'derrubado pelo contraditorio',
-      origem: `${refutador} ${new Date().toISOString().slice(0, 10)}`,
-    });
-  }
-
   // O 5/5 vira 4 com o achado somado e o scorecard gravado passa a BLOQUEAR: deixar
-  // o aceite no disco liberaria o push seguinte e a refutacao seria decorativa.
   await writeScorecard(
     root,
     applyRefutation(
@@ -2025,7 +2038,7 @@ export async function runFallback({
       // e um achado rebaixado a PLAUSIBLE e exatamente o que ele pode atacar de volta.
       const verificado = await verificarAchados({
         root, config, env, collect, ordem, autor, provider, base: resolvedBase,
-        changed, scorecard: attempt.scorecard, outputPathFor,
+        changed, scorecard: attempt.scorecard, outputPathFor, attempts,
       });
       const contraditorio = await contestar({
         root,

@@ -8,24 +8,69 @@ const achado = () => ({
   path: 'src/a.ts:42', title: 'falta filtro de tenant', why: 'a query nao escopa',
 });
 
+// P1-2 da revisao da Fase 2: o veredito tem de CARREGAR o id do achado que
+// responde. Sem isso, um unico output lido por varias verificacoes rebaixa
+// achados que ninguem abriu. Veredito sem id, com id errado, ausente ou
+// malformado: falha fechada, o achado continua CONFIRMED.
+const veredito = (over = {}) => ({ id: 'abc123', verdict: 'CONFIRMED', why: 'reproduzi', ...over });
+
+test('verificarPrompt inclui o achado e proibe re-revisar', () => {
+  const p = verificarPrompt(achado(), 'origin/master', 'src/a.ts');
+  assert.match(p, /falta filtro de tenant/);
+  assert.match(p, /src\/a\.ts:42/);
+  assert.match(p, /CONFIRMED/);
+  assert.match(p, /do not review/i);
+});
+
 test('CONFIRMED mantem o achado bloqueando', () => {
-  const r = aplicarVeredito(achado(), { verdict: 'CONFIRMED', why: 'reproduzi' }, 'nao-verificavel');
+  const r = aplicarVeredito(achado(), veredito({ why: 'reproduzi' }), 'nao-verificavel');
   assert.equal(r.verdict, 'CONFIRMED');
 });
 
+test('veredito com id de outro achado falha fechado (P1-2)', () => {
+  const r = aplicarVeredito(
+    achado(),
+    { id: 'outro-id', verdict: 'PLAUSIBLE', why: 'resposta de outro achado' },
+    'confirmada',
+  );
+  assert.equal(r.verdict, 'CONFIRMED');
+});
+
+test('veredito sem id tambem falha fechado (P1-2)', () => {
+  const r = aplicarVeredito(achado(), { verdict: 'PLAUSIBLE', why: 'x' }, 'nao-verificavel');
+  assert.equal(r.verdict, 'CONFIRMED');
+});
+
+test('veredito com id do proprio achado se aplica (P1-2)', () => {
+  const r = aplicarVeredito(achado(), veredito({ verdict: 'PLAUSIBLE' }), 'nao-verificavel');
+  assert.equal(r.verdict, 'PLAUSIBLE');
+});
+
 test('PLAUSIBLE rebaixa sem remover', () => {
-  const r = aplicarVeredito(achado(), { verdict: 'PLAUSIBLE', why: 'nao consegui reproduzir' }, 'nao-verificavel');
+  const r = aplicarVeredito(
+    achado(),
+    veredito({ verdict: 'PLAUSIBLE', why: 'nao consegui reproduzir' }),
+    'nao-verificavel',
+  );
   assert.equal(r.verdict, 'PLAUSIBLE');
   assert.equal(r.title, achado().title);
 });
 
 test('FALSE_POSITIVE sem prova vira CONFIRMED', () => {
-  const r = aplicarVeredito(achado(), { verdict: 'FALSE_POSITIVE', why: 'acho que nao' }, 'nao-verificavel');
+  const r = aplicarVeredito(
+    achado(),
+    veredito({ verdict: 'FALSE_POSITIVE', why: 'acho que nao' }),
+    'nao-verificavel',
+  );
   assert.equal(r.verdict, 'CONFIRMED');
 });
 
 test('FALSE_POSITIVE com prova confirmada vira PLAUSIBLE, nunca sumindo', () => {
-  const r = aplicarVeredito(achado(), { verdict: 'FALSE_POSITIVE', why: 'o teste passa' }, 'confirmada');
+  const r = aplicarVeredito(
+    achado(),
+    { id: 'abc123', verdict: 'FALSE_POSITIVE', why: 'o teste passa' },
+    'confirmada',
+  );
   assert.equal(r.verdict, 'PLAUSIBLE');
 });
 

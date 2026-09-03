@@ -52,11 +52,14 @@ export function verificarPrompt(finding, base, changed = '') {
 
 /**
  * Aplica o veredito ao achado. Falha FECHADA em todo caminho duvidoso: veredito
- * ausente, malformado, ou FALSE_POSITIVE sem prova que rode = o achado continua
- * bloqueando. Ausencia de segunda opiniao nao absolve.
+ * ausente, malformado, de OUTRO achado (P1-2 da revisao da Fase 2 — o id tem de
+ * casar, senao um output lido por varias verificacoes rebaixa o que ninguem
+ * abriu), ou FALSE_POSITIVE sem prova que rode = o achado continua bloqueando.
+ * Ausencia de segunda opiniao nao absolve.
  */
 export function aplicarVeredito(finding, veredito, provaResultado) {
-  const bruto = veredito && VEREDITOS.has(veredito.verdict) ? veredito.verdict : 'CONFIRMED';
+  const idConfere = !veredito || finding.id === undefined || veredito.id === finding.id;
+  const bruto = veredito && VEREDITOS.has(veredito.verdict) && idConfere ? veredito.verdict : 'CONFIRMED';
   let verdict = bruto;
   if (bruto === 'FALSE_POSITIVE') {
     verdict = provaResultado === 'confirmada' ? 'PLAUSIBLE' : 'CONFIRMED';

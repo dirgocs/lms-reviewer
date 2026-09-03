@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { escreverArquivosCitados, coberturaFixture, verificacaoFixture } from './lms-test-fixtures.mjs';
 import { join } from 'node:path';
@@ -374,6 +374,112 @@ test('verificador dentro do runFallback confirma achado que tentou passar como P
     const gravado = JSON.parse(await readFile(join(root, '.lms', 'last.json'), 'utf8'));
     assert.equal(gravado.findings[0].verdict, 'CONFIRMED');
     assert.equal(gravado.findings[0].verdict_by, 'grok');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// P1-2 da revisao da Fase 2: o veredito tem de responder AO achado — veredito de
+// outro id nao rebaixa. E as verificacoes sao sequenciais (um collect por achado).
+test('verificador serial: veredito do outro achado nao rebaixa o segundo (P1-2)', async () => {
+  const { root, env, scorecardValido } = await fixture();
+  try {
+    // Revisor emite dois achados PLAUSIBLE (nao bloqueiam a forma). O verificador
+    // responde na primeira chamada com veredito cujo id casa com o P0; na segunda,
+    // com id errado. Antes do conserto, a mesma resposta rebaixava os dois.
+    const achados = [
+      { id: 'bbb111', lens: 'code-safety', severity: 'P0', confidence: 95,
+        path: 'a.ts:1', title: 'P0 de tenant', why: 'sem escopo', verdict: 'PLAUSIBLE' },
+      { id: 'aaa000', lens: 'code-quality', severity: 'P2', confidence: 85,
+        path: 'b.ts:1', title: 'P2 cosmético', why: 'naming', verdict: 'PLAUSIBLE' },
+    ];
+    let chamadaVerificador = 0;
+    const collect = async ({ provider, prompt }) => {
+      if (prompt.includes('DEMOLISH')) {
+        // Primeira chamada (P0, id bbb111): veredito casa e rebaixa. Segunda
+        // chamada (P2, id aaa000): veredito com id do P0 — nao pode vazar.
+        const alvo = chamadaVerificador === 0 ? 'bbb111' : 'zzz999';
+        chamadaVerificador += 1;
+        return { kind: 'ok', candidate: { id: alvo, verdict: 'PLAUSIBLE', why: 'nao reproduzi' } };
+      }
+      if (provider === 'claude') {
+        return { kind: 'ok', candidate: { ...scorecardValido, findings: achados } };
+      }
+      return { kind: 'ok', candidate: { refuted: false, confidence: 0, inspected: provaDeLeituraFixture } };
+    };
+    const r = await runFallback({ root, base, env, collect });
+    assert.equal(r.ok, true);
+    const gravado = JSON.parse(await readFile(join(root, '.lms', 'last.json'), 'utf8'));
+    const porId = new Map(gravado.findings.map((f) => [f.id, f]));
+    // O veredito com id certo rebaixa o P0 para PLAUSIBLE.
+    assert.equal(porId.get('bbb111').verdict, 'PLAUSIBLE');
+    // O veredito do P0 nao vaza para o P2: id errado falha fechado.
+    assert.equal(porId.get('aaa000').verdict, 'CONFIRMED');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// P1-1 da revisao da Fase 2: a refutacao do contraditorio PROVA defeitos reais
+// (derrubam o ACEITE). Registrar a classe dela no corpus "nao reporte" suprimia
+// vazamentos reais provados. Precedente so nasce de FALSE_POSITIVE com prova.
+test('refutacao vencedora nao grava precedente (P1-1)', async () => {
+  const { root, env, scorecardValido } = await fixture();
+  try {
+    const collect = async ({ provider, prompt: _prompt }) => {
+      if (provider === 'claude') {
+        return { kind: 'ok', candidate: scorecardValido };
+      }
+      return {
+        kind: 'ok',
+        candidate: {
+          refuted: true, confidence: 95, severity: 'P1', lens: 'code-safety',
+          path: 'a.ts:1', title: 'query sem filtro de tenant',
+          why: 'a query não escopa', inspected: provaDeLeituraFixture,
+        },
+      };
+    };
+    const r = await runFallback({ root, base, env, collect });
+    assert.equal(r.ok, false, 'a refutacao vencedora derruba o aceite');
+    const existe = await stat(join(root, '.lms', 'precedentes.md')).then(() => true, () => false);
+    assert.equal(existe, false, 'defeito REAL provado nao vira classe suprimida');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('verificador FALSE_POSITIVE com prova confirma a classe no corpus (P1-1)', async () => {
+  const { root, env, scorecardValido } = await fixture();
+  try {
+    const achado = {
+      id: 'abc123', lens: 'code-safety', severity: 'P1', confidence: 90,
+      path: 'a.ts:1', title: 'falta filtro de tenant', why: 'a query nao escopa',
+      verdict: 'PLAUSIBLE',
+    };
+    const collect = async ({ provider, prompt }) => {
+      if (prompt.includes('DEMOLISH')) {
+        return {
+          kind: 'ok',
+          candidate: {
+            id: 'abc123', verdict: 'FALSE_POSITIVE',
+            why: 'o filtro esta no middleware, a citacao aponta a linha errada',
+            proof: { command: 'node scripts/prova.mjs', expect: 'pass' },
+          },
+        };
+      }
+      if (provider === 'claude') {
+        return {
+          kind: 'ok',
+          candidate: { ...scorecardValido, findings: [achado] },
+        };
+      }
+      return { kind: 'ok', candidate: { refuted: false, confidence: 0, inspected: provaDeLeituraFixture } };
+    };
+    const r = await runFallback({ root, base, env, collect });
+    assert.equal(r.ok, true);
+    const corpus = await readFile(join(root, '.lms', 'precedentes.md'), 'utf8');
+    assert.match(corpus, /falta filtro de tenant/);
+    assert.match(corpus, /grok/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
