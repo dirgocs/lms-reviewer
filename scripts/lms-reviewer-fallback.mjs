@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { collectOutput, matarGrupo, spawnEmGrupo } from './lms-process-utils.mjs';
+import { collectOutput, matarGrupo, spawnEmGrupo, vigiarFilho, matarFilhosRegistados } from './lms-process-utils.mjs';
 import { appendFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -639,6 +639,7 @@ function runCommand({ command, args, input, cwd, env, timeoutMs }) {
       stdio: ['pipe', 'pipe', 'pipe'],
       detached: true,
     });
+    vigiarFilho(child); // P2-7: filho destacado do terminal — o saida do runner o derruba
     const { getStdout, getStderr } = collectOutput(child);
     const timer = setTimeout(() => {
       timedOut = true;
@@ -2021,6 +2022,21 @@ async function resolverAceite({ root, env, provider, attempt, attempts, contradi
   };
 }
 
+// P2-7 da revisao da Fase 3: os CLIs rodam detached — fora do grupo do terminal.
+// Sem isto, Ctrl+C/morte do pai deixava claude/grok/codex vivos, queimando quota
+// sem ninguem lendo o stdout. Instalado uma vez por processo.
+let handlersDeSaidaInstalados = false;
+function instalarSaidaComPurga() {
+  if (handlersDeSaidaInstalados) return;
+  handlersDeSaidaInstalados = true;
+  for (const [signal, code] of [['SIGINT', 130], ['SIGTERM', 143]]) {
+    process.on(signal, () => {
+      matarFilhosRegistados(signal);
+      process.exit(code);
+    });
+  }
+}
+
 export async function runFallback({
   root = process.cwd(),
   base,
@@ -2031,6 +2047,7 @@ export async function runFallback({
   // stdout e não tem destino. Uma função por provider mantém as duas no mesmo caminho.
   outputPathFor = () => '',
 } = {}) {
+  instalarSaidaComPurga();
   const resolvedBase = base ?? (await resolveBase(root));
   const {
     text: changed,

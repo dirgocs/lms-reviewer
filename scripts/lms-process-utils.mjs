@@ -38,3 +38,17 @@ export function matarGrupo(child, signal = 'SIGTERM') {
     child.kill(signal);
   }
 }
+
+// P2-7 da revisao da Fase 3: `detached` tira os CLIs do grupo do terminal — um
+// Ctrl+C/morte do pai deixava o filho vivo, consumindo quota sem ninguem lendo o
+// stdout. Os filhos sao registrados e o runner derruba os vivos ao sair.
+const filhosVivos = new Set();
+
+export function vigiarFilho(child) {
+  filhosVivos.add(child);
+  child.on('close', () => filhosVivos.delete(child));
+}
+
+export function matarFilhosRegistados(signal = 'SIGTERM') {
+  for (const child of [...filhosVivos]) matarGrupo(child, signal);
+}

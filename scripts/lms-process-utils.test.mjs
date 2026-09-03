@@ -35,3 +35,24 @@ test('matarGrupo derruba a arvore inteira, nao so o processo pai', async () => {
   const sobreviveu = await stat(sentinela).then(() => true, () => false);
   assert.equal(sobreviveu, false, 'neto sobreviveu ao kill do grupo');
 });
+
+// P2-7 da revisao da Fase 3: detached tira os CLIs do grupo do terminal — sem
+// registro + purge no saida, um Ctrl+C/morte do pai deixava o filho vivo.
+test('matarFilhosRegistados derruba os filhos vigiados', async () => {
+  const { vigiarFilho, matarFilhosRegistados } = await import('./lms-process-utils.mjs');
+  const root = await mkdtemp(join(tmpdir(), 'lms-purga-'));
+  const sentinela = join(root, 'filho-sobreviveu.txt');
+  const scriptPath = join(root, 'teimoso.sh');
+  await writeFile(scriptPath, '#!/bin/sh\nsleep 1 && touch "$ALVO" &\nwait\n', 'utf8');
+  await execFile('chmod', ['+x', scriptPath]);
+
+  const child = spawnEmGrupo('sh', [scriptPath], { env: { ...process.env, ALVO: sentinela } });
+  vigiarFilho(child);
+  const fechou = new Promise((resolve) => child.on('close', resolve));
+  matarFilhosRegistados('SIGKILL');
+  await fechou;
+  await sleep(1_500);
+
+  const sobreviveu = await stat(sentinela).then(() => true, () => false);
+  assert.equal(sobreviveu, false, 'filho registrado sobreviveu a saida do pai');
+});
