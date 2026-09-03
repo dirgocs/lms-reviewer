@@ -33,5 +33,5 @@
 ## Dúvidas para o Master
 
 1. **`orchestrator` só lista** — o roteamento imprime a lista e sai; não há ainda um chamador que consuma `escalados` para criar tarefas. É o desenho (o Master decide olhando a lista) ou quer uma fila própria?
-2. **Fixes enfileirados contra `subject` antigo:** o fix toca o disco e invalida o scorecard — a rodada de re-revisão é manual (rrodar a cadeia de novo) por desenho. Automatizar o re-trigger após `lms:fix` bem-sucedido é Fase 4 ou fica como está?
+2. **Fixes enfileirados contra `subject` antigo:** (decisão Master 2026-09-02: re-trigger automático NÃO entra — fica manual por desenho, evitando laço fix→revisão sem humano. **Ideia registrada para Fase 4**.) o fix toca o disco e invalida o scorecard — a rodada de re-revisão é manual (rrodar a cadeia de novo) por desenho. Automatizar o re-trigger após `lms:fix` bem-sucedido é Fase 4 ou fica como está?
 3. **P3-4 da Fase 2 (wiring do exit 10 no `.sh`)** — continua pendente do fix-review (o contrato do CLI está testado; o shell não). Quer que eu cubra na próxima leva?
