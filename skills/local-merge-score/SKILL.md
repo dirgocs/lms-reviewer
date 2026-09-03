@@ -403,7 +403,9 @@ mkdir -p .lms
   ],
   "findings": [],
   "inspected": [
-    { "path": "a.ts", "line": 1, "quote": "linha citada verbatim" }
+    { "path": "path/from/the/diff.ts", "line": 42, "quote": "export function foo(bar) {" },
+    { "path": "another.ts", "line": 7, "quote": "import { thing } from './thing';" },
+    { "path": "a/third.ts", "line": 130, "quote": "const LIMIT = 12_000;" }
   ],
   "at": "2026-07-08T20:00:00Z"
 }
