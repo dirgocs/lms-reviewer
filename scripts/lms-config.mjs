@@ -101,9 +101,15 @@ function str(value) {
 }
 
 /** Fase 4: normaliza `testCommand` (string ou { cmd, args }) para { cmd, args } | null. */
-function normalizarTestCommand(valor) {
+export function normalizarTestCommand(valor) {
   if (typeof valor === 'string' && valor.trim()) {
-    return Object.freeze({ cmd: valor.trim(), args: Object.freeze([]) });
+    // P2-2 da revisao da Fase 4: spawn NAO usa shell — 'pnpm test' como cmd unico
+    // dava ENOENT (classificado como falha de ferramenta) e o degrau ficava
+    // silenciosamente desligado. Quebra em cmd+args e tira as aspas de cada token.
+    const tokens = valor.trim().split(/\s+/).map((t) => t.replace(/^["']|["']$/g, ''));
+    const [cmd, ...args] = tokens;
+    if (!cmd) return null;
+    return Object.freeze({ cmd, args: Object.freeze(args) });
   }
   if (valor && typeof valor === 'object' && !Array.isArray(valor) &&
       str(valor.cmd) &&

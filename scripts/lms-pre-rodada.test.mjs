@@ -19,7 +19,8 @@ const cli = join(raiz, 'scripts', 'lms-pre-rodada.mjs');
 // precedente da triagem: erro de infra nunca decide sozinho.
 
 test('comandoDeTeste: string vira {cmd,args}, objeto normaliza, ausente e lixo viram null (Task 1)', () => {
-  assert.deepEqual(comandoDeTeste({ testCommand: 'pnpm test' }), { cmd: 'pnpm test', args: [] });
+  // P2-2: string quebra em cmd+args (spawn nao usa shell).
+  assert.deepEqual(comandoDeTeste({ testCommand: 'pnpm test' }), { cmd: 'pnpm', args: ['test'] });
   assert.deepEqual(
     comandoDeTeste({ testCommand: { cmd: 'pnpm', args: ['test', 'unit'] } }),
     { cmd: 'pnpm', args: ['test', 'unit'] },
@@ -98,4 +99,25 @@ test('CLI sai 11 no vermelho e 0 nos demais (Task 1)', async () => {
   assert.equal(verde.code, 0);
   const pulado = await rodar(null);
   assert.equal(pulado.code, 0);
+});
+
+// P2-2 da revisao da Fase 4: `testCommand` string com argumento nunca rodava —
+// virava {cmd: "pnpm test", args: []} e o spawn (sem shell) dava ENOENT,
+// classificado como falha de ferramenta: o degrau ficava silenciosamente desligado.
+test('string com argumentos quebra em cmd+args e tira as aspas (P2-2)', () => {
+  assert.deepEqual(comandoDeTeste({ testCommand: 'pnpm test' }), { cmd: 'pnpm', args: ['test'] });
+  assert.deepEqual(
+    comandoDeTeste({ testCommand: 'node -e "process.exit(1)"' }),
+    { cmd: 'node', args: ['-e', 'process.exit(1)'] },
+  );
+});
+
+test('CLI com testCommand STRING roda de verdade (P2-2)', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'lms-pre-cli2-'));
+  await writeFile(join(root, 'lms.config.json'), JSON.stringify({ testCommand: 'node -e "process.exit(1)"' }));
+  const r = await execFile(process.execPath, [cli, '--root', root], { cwd: root })
+    .then((x) => ({ ...x, code: 0 }))
+    .catch((e) => e);
+  assert.equal(r.code, 11, `string com args tem de produzir vermelho: ${r.stdout}\n${r.stderr}`);
+  assert.match(String(r.stderr), /p1|score|node|vermelha|su[ií]te|exit/i);
 });

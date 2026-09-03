@@ -16,6 +16,7 @@
  * CLI: exit 0 (pulado/verde/erro-de-ferramenta) · exit 11 (vermelho).
  */
 import { spawnEmGrupo, matarGrupo } from './lms-process-utils.mjs';
+import { normalizarTestCommand } from './lms-config.mjs';
 
 /** Últimas N linhas de um texto — o que o trigger mostra no stderr do exit 11. */
 export function cauda(texto, linhas = 20) {
@@ -23,20 +24,10 @@ export function cauda(texto, linhas = 20) {
   return partes.slice(-linhas).join('\n');
 }
 
-/** { cmd, args } | null — aceita string ("pnpm test") ou objeto { cmd, args }. */
+/** { cmd, args } | null — aceita string ("pnpm test") ou objeto { cmd, args }.
+ *  Delega ao normalizador do config: uma fonte so para a mesma regra. */
 export function comandoDeTeste(config) {
-  const valor = config?.testCommand ?? null;
-  if (!valor) return null;
-  if (typeof valor === 'string' && valor.trim()) {
-    return { cmd: valor.trim(), args: [] };
-  }
-  if (
-    valor && typeof valor === 'object' && typeof valor.cmd === 'string' && valor.cmd.trim() &&
-    Array.isArray(valor.args) && valor.args.every((a) => typeof a === 'string')
-  ) {
-    return { cmd: valor.cmd.trim(), args: [...valor.args] };
-  }
-  return null;
+  return normalizarTestCommand(config?.testCommand ?? null);
 }
 
 /**
