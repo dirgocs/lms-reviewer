@@ -204,3 +204,20 @@ test('achado sem verdict conta como CONFIRMED e bloqueia', () => {
     path: 'a.ts:1', title: 't', why: 'w' }];
   assert.equal(validateScorecard(card, options), false);
 });
+
+// P1-1 da revisao da Fase 1 (REVIEW-FASE1-OPUS.md): contadores zerados NAO
+// escondem achado listado. O conserto aterrissou em fb4f6ba (veredito le a
+// lista); o teste trava a regressao do cenario exato da revisao.
+test('achado P0 listado com contadores zerados bloqueia (P1-1)', () => {
+  const card = validScorecard();
+  card.findings = [{ severity: 'P0', confidence: 99, path: 'src/x.ts:1',
+    title: 'rce', why: 'exec de input do usuario' }];
+  assert.equal(validateScorecard(card, options), false);
+});
+
+test('achado CONFIRMED bloqueia mesmo com agregado coerente (P1-1)', () => {
+  const card = validScorecard();
+  card.findings = [{ id: 'x', lens: 'code-safety', severity: 'P1', confidence: 95,
+    path: 'a.ts:1', title: 'falta tenant', why: 'w', verdict: 'CONFIRMED' }];
+  assert.equal(validateScorecard(card, options), false);
+});
