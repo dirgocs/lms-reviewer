@@ -672,6 +672,15 @@ async function writeScorecard(root, value) {
   await rename(temporary, join(dir, 'last.json'));
 }
 
+/** Fase 4 Task 5: os achados da rodada, enxutos, para o historico. */
+function achadosDaRodada(scorecard) {
+  return (Array.isArray(scorecard?.findings) ? scorecard.findings : []).map((f) => ({
+    lens: f.lens ?? '',
+    path: f.path ?? '',
+    id: f.id ?? '',
+  }));
+}
+
 function telemetryData(round, estagio, provider, config, value) {
   const direct = ['p0', 'p1', 'p2'].every((key) => Number.isInteger(value?.[key]));
   const extras = Array.isArray(value?.extra_findings) ? value.extra_findings : [];
@@ -1149,6 +1158,7 @@ export async function attemptProvider({
         ...telemetryData(rodada, 'reviewer', provider, config, scorecard),
         score: scorecard.score,
         autonomy: scorecard.autonomy,
+        achados: achadosDaRodada(scorecard),
       },
     );
     return {
@@ -1163,6 +1173,7 @@ export async function attemptProvider({
     ...telemetryData(rodada, 'reviewer', provider, config, scorecardVeredito),
     score: scorecardVeredito.score,
     autonomy: scorecard.autonomy,
+    achados: achadosDaRodada(scorecardVeredito),
   });
   return {
     accepted: true,

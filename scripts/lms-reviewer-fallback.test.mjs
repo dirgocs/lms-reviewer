@@ -1685,3 +1685,26 @@ test('teto de tempo do estagio de verificacao (P2-6)', async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+// Fase 4 Task 5: a linha de historico carrega os achados da rodada — e a materia-
+// prima da classe recorrente (mesma lens+prefixo em 3 rodadas consecutivas).
+test('historico da rodada carrega os achados com lens, path e id (Task 5)', async () => {
+  const { root, env } = await fixture();
+  try {
+    await runFallback({
+      root,
+      base,
+      env: { ...env, FAKE_CLAUDE_MODE: 'review-p1' },
+    });
+    const linhas = (await readFile(join(root, '.lms', 'history.jsonl'), 'utf8'))
+      .trim().split('\n').map((l) => JSON.parse(l));
+    const comAchados = linhas.filter((l) => Array.isArray(l.achados) && l.achados.length > 0);
+    assert.ok(comAchados.length > 0, 'a rodada com achado grava achados no historico');
+    const achado = comAchados.at(-1).achados[0];
+    assert.equal(achado.lens, 'code-quality');
+    assert.match(achado.path, /a\.ts:1/);
+    assert.ok(achado.id, 'o id derivado acompanha o achado');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
