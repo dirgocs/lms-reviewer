@@ -20,7 +20,8 @@
     "test": "node --test scripts/*.test.mjs && sh scripts/lms-push-changed.test.sh && bash hooks/local-merge-score-gate.test.sh",
     "lms:reviewer": "bash scripts/lms-reviewer-spawn.sh",
     "lms:reviewer:tmux": "node scripts/lms-reviewer-tmux.mjs",
-    "lms:trigger": "bash scripts/lms-reviewer-trigger.sh"
+    "lms:trigger": "bash scripts/lms-reviewer-trigger.sh",
+    "lms:fix": "node scripts/lms-fix.mjs"
   },
   "files": [
     "scripts/",

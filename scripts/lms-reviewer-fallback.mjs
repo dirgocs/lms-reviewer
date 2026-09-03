@@ -1368,7 +1368,7 @@ const PROVAS_PERMITIDAS = [
  *
  * Devolve: 'confirmada' | 'derrubada' | 'nao-verificavel'.
  */
-async function verificarProva(root, prova, env = process.env) {
+export async function verificarProva(root, prova, env = process.env) {
   const comando = String(prova?.command ?? '').trim();
   const esperado = String(prova?.expect ?? '').trim();
   if (!comando || !['fail', 'pass'].includes(esperado)) return 'nao-verificavel';
