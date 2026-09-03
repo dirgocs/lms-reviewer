@@ -38,6 +38,23 @@ Fase 4: fechamento do laço fix → revisão. Spec e plano em
   (KDT-68: score 4 com p1=5 aceito): P0/P1 CONFIRMED => score <= 3; só P2 => <= 4.
   PLAUSIBLE não pesa.
 
+### Corrigido na revisão independente (2026-09-03)
+
+- `collectTmux` (modo tmux = produção) explodia com `relPrompt` indefinido —
+  nenhuma revisão rodava no caminho default; agora coberto por teste com tmux
+  falso no PATH.
+- Rodada limpa quebra a série da classe recorrente (antes: deadlock — o sintético
+  nunca saía); recorrência escopada por subject (rodada de outra branch não conta).
+- `testCommand` string com argumentos quebra em cmd+args (spawn sem shell dava
+  ENOENT "de ferramenta" e o degrau ficava desligado em silêncio).
+- Re-verificação: diff cobre o LOTE de fixes (marco da primeira linha, com
+  `linhasConsumidas`); `closed` sai da lista bloqueante no gate (cruzamento
+  last.json × reverificacao.json pelo subject); agrupada por `found_by` (cada
+  revisor re-verifica os próprios achados); roda na TUI com `manterJanela` e
+  coleta por modo; `runFix` imprime o comando com os ids.
+- Eval: recall casa apenas achado P1; taxa_fp por `fp_conhecidos` do corpus
+  (diluia com ruído); repos temporários removidos; teto de memória na pré-rodada.
+
 ## [1.2.0] - 2026-09-02
 
 Fase 1 (contrato do scorecard), Fase 2 (qualidade do veredito) e Fase 3 (fix mode),
