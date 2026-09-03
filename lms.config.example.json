@@ -51,5 +51,13 @@
     "limite próprio em LMS_TEST_TIMEOUT_MS (default 10 min); LMS_TEST_GATE=0 desliga.",
     "Falha de ferramenta (comando ausente, timeout) avisa e segue — nunca decide."
   ],
-  "testCommand": { "cmd": "pnpm", "args": ["test"] }
+  "testCommand": { "cmd": "pnpm", "args": ["test"] },
+
+  "$bugAgents": [
+    "Fase 5: triagem de bug com agentes de domínio do repo. 'dir' é onde moram os",
+    "agentes .md (só os COMMITADOS rodam); 'tracker' é none|github|linear (como o",
+    "achado é registrado); 'guided: true' liga o bootstrap com perguntas (o padrão",
+    "é autônomo: propõe, confirma uma vez, e nada roda até você commitar os arquivos)."
+  ],
+  "bugAgents": { "dir": ".agents/bug-triage", "tracker": "none", "guided": false }
 }

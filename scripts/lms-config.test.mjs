@@ -52,3 +52,17 @@ test('valor não-string é descartado em vez de virar caminho inválido', () => 
   assert.equal(config.migrationsPath, null);
   assert.equal(config.dbStateGate, null);
 });
+
+// Fase 5 Task 2: bugAgents na config — dir, tracker (allowlist) e guided.
+test('bugAgents: defaults quando ausente, tracker fora da allowlist cai para none (Task 2)', () => {
+  const vazio = loadConfig(projeto());
+  assert.deepEqual(vazio.bugAgents, { dir: '.agents/bug-triage', tracker: 'none', guided: false });
+
+  const jira = loadConfig(projeto(JSON.stringify({ bugAgents: { tracker: 'jira' } })));
+  assert.deepEqual(jira.bugAgents, { dir: '.agents/bug-triage', tracker: 'none', guided: false });
+
+  const custom = loadConfig(
+    projeto(JSON.stringify({ bugAgents: { dir: 'debug/agents', tracker: 'github', guided: true } })),
+  );
+  assert.deepEqual(custom.bugAgents, { dir: 'debug/agents', tracker: 'github', guided: true });
+});

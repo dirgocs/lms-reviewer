@@ -32,6 +32,15 @@ import { join } from 'node:path';
  */
 export const DEFAULT_EXEMPT_PATHS = Object.freeze(['^docs/', '\\.(md|mdx|txt|rst)$']);
 
+// Fase 5: rastreadores suportados para o achado de bug (allowlist fechada).
+export const TRACKERS = ['none', 'github', 'linear'];
+
+const BUG_AGENTS_PADRAO = Object.freeze({
+  dir: '.agents/bug-triage',
+  tracker: 'none',
+  guided: false,
+});
+
 const EMPTY = Object.freeze({
   migrationsPath: null,
   dbStateGate: null,
@@ -39,6 +48,7 @@ const EMPTY = Object.freeze({
   exemptPaths: DEFAULT_EXEMPT_PATHS,
   nonExemptPaths: Object.freeze([]),
   testCommand: null,
+  bugAgents: BUG_AGENTS_PADRAO,
 });
 
 const cache = new Map();
@@ -82,6 +92,8 @@ export function loadConfig(root = projectRoot()) {
         // objeto = { cmd, args }. Opcional por desenho: repo sem suíte não declara
         // e o degrau é pulado com aviso.
         testCommand: normalizarTestCommand(raw.testCommand),
+        // Fase 5: dir do agente de debug, tracker (allowlist) e modo guiado.
+        bugAgents: normalizarBugAgents(raw.bugAgents),
       });
     } catch (error) {
       // Config quebrada não pode virar aprovação silenciosa: avisa alto e segue
@@ -98,6 +110,16 @@ export function loadConfig(root = projectRoot()) {
 
 function str(value) {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+/** Fase 5: normaliza bugAgents — dir com str, tracker contra TRACKERS, guided boolean. */
+function normalizarBugAgents(valor) {
+  if (!valor || typeof valor !== 'object' || Array.isArray(valor)) return BUG_AGENTS_PADRAO;
+  return Object.freeze({
+    dir: str(valor.dir) ?? BUG_AGENTS_PADRAO.dir,
+    tracker: TRACKERS.includes(valor.tracker) ? valor.tracker : 'none',
+    guided: valor.guided === true,
+  });
 }
 
 /** Fase 4: normaliza `testCommand` (string ou { cmd, args }) para { cmd, args } | null. */
