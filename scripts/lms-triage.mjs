@@ -7,15 +7,19 @@
  *
  * Falha FECHADA: sem informacao de diff, ou na duvida, revisa. Uma revisao a mais
  * custa tokens; uma a menos custa o gate.
+ *
+ * P2-2 da revisao da Fase 2: a isencao e a MESMA regra do gate (`isExempt` +
+ * `lms.config.json`), nao uma copia — copia divergindo para o lado permissivo
+ * virava bypass silencioso, e divergindo para o rigor virava deadlock (trigger
+ * dispensa, gate barra por scorecard ausente).
  */
 import { changedOpenablePaths } from './lms-inspection.mjs';
+import { isExempt } from './lms-exempt-paths.mjs';
+import { DEFAULT_EXEMPT_PATHS, loadConfig } from './lms-config.mjs';
 
-// Extensoes sem caminho de execucao. `.sql` NAO entra: migration muda o banco.
-const INERTES = /\.(md|mdx|txt|rst|adoc|svg|png|jpe?g|gif|webp|ico|woff2?|ttf)$/i;
-
-// Caminhos que exigem revisao mesmo parecendo inertes: mexer no proprio gate,
-// no CI ou nas regras que o revisor le e exatamente o que ninguem deve fazer
-// sem segunda opiniao.
+// Caminhos que exigem revisao mesmo quando o diff e isento: mexer no proprio
+// gate, no CI ou nas regras que o revisor le e exatamente o que ninguem deve
+// fazer sem segunda opiniao.
 const SEMPRE_REVISAR = [
   /^\.github\/workflows\//,
   /^\.claude\/hooks\//,
@@ -27,25 +31,27 @@ const SEMPRE_REVISAR = [
   /(^|\/)(AGENTS|CLAUDE)\.md$/,
 ];
 
-export function precisaRevisao(paths) {
+export function precisaRevisao(
+  paths,
+  config = { exemptPaths: DEFAULT_EXEMPT_PATHS, nonExemptPaths: [] },
+) {
   if (!Array.isArray(paths) || paths.length === 0) {
     return { revisar: true, motivo: 'sem informacao de diff' };
   }
   const obrigatorio = paths.find((p) => SEMPRE_REVISAR.some((re) => re.test(p)));
   if (obrigatorio) return { revisar: true, motivo: `toca superficie sensivel: ${obrigatorio}` };
 
-  const comExecucao = paths.filter((p) => !INERTES.test(p));
-  if (comExecucao.length === 0) {
-    return { revisar: false, motivo: 'diff apenas de documentacao e assets, sem caminho de execucao' };
+  if (isExempt(paths, config)) {
+    return { revisar: false, motivo: 'diff isento: apenas documentacao e assets, sem caminho de execucao' };
   }
-  return { revisar: true, motivo: `${comExecucao.length} arquivo(s) com caminho de execucao` };
+  return { revisar: true, motivo: `${paths.length} arquivo(s) fora da regra de isencao do gate` };
 }
 
 async function main() {
   const i = process.argv.indexOf('--base');
   const base = i >= 0 ? process.argv[i + 1] : 'origin/master';
   const paths = [...await changedOpenablePaths(process.cwd(), base)];
-  const { revisar, motivo } = precisaRevisao(paths);
+  const { revisar, motivo } = precisaRevisao(paths, loadConfig(process.cwd()));
   console.error(`lms-triage: ${revisar ? 'revisar' : 'dispensada'} — ${motivo}`);
   process.exitCode = revisar ? 0 : 10;
 }
