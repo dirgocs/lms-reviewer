@@ -64,9 +64,11 @@ export function providerConfig(env = process.env, { paths = [] } = {}) {
   const effort = effortPara(paths, env);
   return {
     order: envList(env, 'LMS_REVIEWER_ORDER', 'claude,grok,codex'),
-    // O effort do refutador continua vindo de LMS_CLAUDE_EFFORT (Fable em medium,
-    // decisao do Master 2026-08-19): so o REVISOR sobe com o raio.
-    claudeEffort: env.LMS_CLAUDE_EFFORT ?? effort,
+    // P2-1 da revisao da Fase 2: `effort` (do raio) vale SO para o revisor — o
+    // commandFor decide pelo papel. O claude em outros papeis (refutador,
+    // verificador) usa LMS_CLAUDE_EFFORT (Fable em medium, Master 2026-08-19) e
+    // NUNCA herda o raio: antes, com a env ausente, o refutador subia para xhigh.
+    claudeEffort: env.LMS_CLAUDE_EFFORT,
     effort,
     // `xhigh`, não `high` (diretriz Master 2026-08-27). Review é o trabalho mais
     // difícil da cadeia: o revisor tem de refutar código já defendido em comentário,
@@ -88,10 +90,14 @@ export function commandFor(provider, config) {
       args: [
         '--model',
         model,
-        // effort configurável: refutador Fable roda em medium por decisão do
-        // Master (2026-08-19); default preserva o comportamento anterior
+        // P2-1: o papel decide o effort. Revisor sobe com o raio (`effort`);
+        // refutador e verificador ficam no claudeEffort (LMS_CLAUDE_EFFORT,
+        // Fable em medium — Master 2026-08-19). Sem papel (testes), comportamento
+        // anterior preservado.
         '--effort',
-        config.claudeEffort ?? 'high',
+        config.papel === 'reviewer'
+          ? (config.effort ?? config.claudeEffort ?? 'high')
+          : (config.claudeEffort ?? 'high'),
         '--print',
         '--output-format',
         'json',
@@ -1017,7 +1023,9 @@ export async function attemptProvider({
   const tentativas = Math.max(1, Number(maxTentativas) || 2);
   for (let tentativa = 1; tentativa <= tentativas; tentativa += 1) {
     const started = Date.now();
-    const result = await collect({ root, provider, config, base, prompt: entrada, env });
+    const result = await collect({
+      root, provider, config: { ...config, papel: 'reviewer' }, base, prompt: entrada, env,
+    });
     durationMs = Date.now() - started;
     if (result.kind !== 'ok') {
       await logAttempt(
@@ -1779,7 +1787,7 @@ async function contestar({
   const contra = await collect({
     root,
     provider: refutador,
-    config,
+    config: { ...config, papel: 'refutador' },
     base,
     prompt: refutePrompt(base, refutador, changed, outputPathFor(refutador)),
     env,
