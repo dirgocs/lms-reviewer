@@ -38,3 +38,16 @@ test('provider que escreveu um dos arquivos nao revisa', () => {
   assert.equal(providerPodeRevisar('grok', ['src/a.ts', 'src/b.ts'], autores), false);
   assert.equal(providerPodeRevisar('claude', ['src/a.ts', 'src/b.ts'], autores), true);
 });
+
+// P2-2 da revisao da Fase 3: a exclusao e por ARQUIVO e por RODADA — fix mergeado
+// ha semanas nao pode excluir o revisor para sempre ("em tres correcoes nao
+// sobra ninguem" voltando pela porta do tempo).
+test('fix de outro HEAD nao exclui o revisor (P2-2)', async () => {
+  const root = await repoCom([
+    { id: 'a1', provider: 'grok', outcome: 'fixed', arquivos: ['src/a.ts'], commit: 'sha-antigo' },
+  ]);
+  const atual = await autoresPorArquivo(root, 'sha-atual');
+  assert.equal(atual.size, 0, 'autoria de outro HEAD expirou');
+  const doMesmoHead = await autoresPorArquivo(root, 'sha-antigo');
+  assert.deepEqual([...(doMesmoHead.get('src/a.ts') ?? [])], ['grok']);
+});

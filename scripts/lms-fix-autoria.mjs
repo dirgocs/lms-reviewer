@@ -12,7 +12,14 @@ import { join } from 'node:path';
 
 const PERSISTIU = new Set(['fixed', 'claimed']);
 
-export async function autoresPorArquivo(root) {
+/**
+ * `commitAtual` delimita a exclusao no tempo (P2-2 da revisao da Fase 3):
+ * `.lms/fixes.jsonl` e append-only e sem escopo temporal a exclusao era
+ * permanente por arquivo — fix mergeado ha semanas continuava tirando o revisor
+ * da cadeia, e arquivos quentes esvaziavam a ordem ate o scorecard cair para
+ * `self`. Com o HEAD atual, a exclusao vale enquanto o fix estiver na arvore.
+ */
+export async function autoresPorArquivo(root, commitAtual = '') {
   const mapa = new Map();
   let texto;
   try {
@@ -29,6 +36,7 @@ export async function autoresPorArquivo(root) {
       continue;
     }
     if (!PERSISTIU.has(registro.outcome)) continue;
+    if (commitAtual && registro.commit !== commitAtual) continue;
     for (const arquivo of registro.arquivos ?? []) {
       if (!mapa.has(arquivo)) mapa.set(arquivo, new Set());
       mapa.get(arquivo).add(registro.provider);

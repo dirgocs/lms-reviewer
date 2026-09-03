@@ -102,10 +102,17 @@ export async function marcoDaArvore(root) {
 }
 
 async function registrar(root, linha) {
+  // P2-2 da revisao da Fase 3: o HEAD do momento vai na linha — e o que delimita
+  // a exclusao de autoria no tempo (fix mergeado ha semanas nao exclui ninguem).
+  let commit = "";
+  try {
+    const { stdout } = await execFile("git", ["rev-parse", "HEAD"], { cwd: root });
+    commit = stdout.trim();
+  } catch {}
   await mkdir(join(root, ".lms"), { recursive: true });
   await appendFile(
     join(root, ".lms", "fixes.jsonl"),
-    `${JSON.stringify(linha)}\n`,
+    `${JSON.stringify({ commit, ...linha })}\n`,
     "utf8",
   );
 }

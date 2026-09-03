@@ -2051,7 +2051,13 @@ export async function runFallback({
   // Autor da sessao fora da cadeia (como sempre) E quem corrigiu arquivo deste diff
   // (Fase 3): um provider que fixou arquivo do diff atual nao pontua o proprio
   // conserto — mas sai SO desta rodada, nao da cadeia inteira.
-  const autores = await autoresPorArquivo(root);
+  // P2-2: so autoria no HEAD atual exclui — fix antigo, ja mergeado, expirou.
+  let shaAtual = "";
+  try {
+    const { stdout } = await execFileCallback("git", ["rev-parse", "HEAD"], { cwd: root });
+    shaAtual = stdout.trim();
+  } catch {}
+  const autores = await autoresPorArquivo(root, shaAtual);
   const independentes = config.order.filter(
     (provider) => provider !== autor && providerPodeRevisar(provider, [...changedPaths], autores),
   );
