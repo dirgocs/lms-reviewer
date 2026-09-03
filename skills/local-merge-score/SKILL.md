@@ -411,8 +411,9 @@ mkdir -p .lms
 }
 ```
 
-O contrato canônico é [references/scorecard.schema.json](references/scorecard.schema.json),
-mantido em sincronia com `scripts/lms-scorecard.mjs` por teste. Campos novos desta versão:
+O contrato canônico é [references/scorecard.schema.json](references/scorecard.schema.json).
+O teste mantém o exemplo do schema passando no validador e confere as restrições-chave;
+as regras normativas são o `scripts/lms-scorecard.mjs`. Campos novos desta versão:
 
 | Campo | Para quê |
 | --- | --- |

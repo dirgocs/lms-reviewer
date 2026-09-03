@@ -55,6 +55,36 @@ test('o exemplo do schema publicado passa no validador', async () => {
   );
 });
 
+// P2-2/P2-3 da revisao da Fase 1: o schema e documentacao executavel, entao as
+// restricoes que o validador aplica precisam aparecer no schema — os pontos onde
+// ja tinham divergido ficam travados aqui.
+test('o schema publica as MESMAS restricoes do validador', async () => {
+  const schema = JSON.parse(
+    await readFile(
+      new URL('../skills/local-merge-score/references/scorecard.schema.json', import.meta.url),
+    ),
+  );
+  const { verified, citation, lens, coverage } = schema.$defs;
+  // (a) claim obrigatorio e >= 20 chars SO em verified; citation (inspected) nao pede
+  assert.ok(verified.required.includes('claim'));
+  assert.equal(verified.properties.claim.minLength, 20);
+  assert.equal(citation.required.includes('claim'), false);
+  // (b) arrays de citacao nao aceitam vazio
+  for (const campo of ['verified', 'inspected']) {
+    assert.equal(schema.properties[campo].minItems, 1);
+  }
+  // (c) fallow e exigido pelo gate de publicacao
+  assert.ok(schema.required.includes('fallow'));
+  // (d)+(e) applicable e booleano e, quando false, exige na_reason >= 15
+  assert.equal(lens.properties.applicable.type, 'boolean');
+  assert.deepEqual(lens.dependentRequired, { applicable: ['na_reason'] });
+  assert.equal(lens.properties.na_reason.minLength, 15);
+  // (f) superficie nomeada
+  assert.equal(coverage.properties.surface.minLength, 3);
+  // (g) validador ignora lentes desconhecidas — o schema nao pode ser mais estrito
+  assert.equal(schema.properties.lenses.additionalProperties, undefined);
+});
+
 test('exige coverage', () => {
   const { coverage: _coverage, ...semCoverage } = validScorecard();
   assert.match(scorecardFormError(semCoverage, options), /coverage/);

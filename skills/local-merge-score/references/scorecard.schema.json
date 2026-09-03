@@ -17,6 +17,7 @@
     "verified",
     "inspected",
     "autonomy",
+    "fallow",
     "at"
   ],
   "properties": {
@@ -38,8 +39,7 @@
         "code-structure": { "$ref": "#/$defs/lens" },
         "code-quality": { "$ref": "#/$defs/lens" },
         "code-efficiency": { "$ref": "#/$defs/lens" }
-      },
-      "additionalProperties": false
+      }
     },
     "coverage": {
       "type": "array",
@@ -49,6 +49,7 @@
     },
     "verified": {
       "type": "array",
+      "minItems": 1,
       "items": { "$ref": "#/$defs/verified" },
       "description": "O que o revisor conferiu e considera CORRETO, com citacao verbatim. Alvo barato para o contraditorio: derrubar uma afirmacao custa achar um contraexemplo."
     },
@@ -59,7 +60,8 @@
     },
     "inspected": {
       "type": "array",
-      "items": { "$ref": "#/$defs/verified" },
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/citation" },
       "description": "Prova de leitura: linhas que o revisor abriu, com citacao conferida no disco pelo gate."
     },
     "autonomy": {
@@ -90,25 +92,36 @@
         "p1": { "type": "integer", "minimum": 0 },
         "p2": { "type": "integer", "minimum": 0 },
         "applicable": { "type": "boolean", "description": "Lente inaplicavel? `{p0:0,p1:0,p2:0}` e ambiguo: limpo ou nao olhei? `applicable: false` + `na_reason` desambigua, e lente inaplicavel nao pode reportar achado." },
-        "na_reason": { "type": "string", "description": "Obrigatorio quando applicable: false. Minimo de 15 caracteres." }
-      }
+        "na_reason": { "type": "string", "minLength": 15, "description": "Obrigatorio quando applicable: false. Minimo de 15 caracteres." }
+      },
+      "dependentRequired": { "applicable": ["na_reason"] }
     },
     "coverage": {
       "type": "object",
       "required": ["surface", "total", "inspected"],
       "properties": {
-        "surface": { "type": "string", "description": "O que foi varrido (ex.: 'arquivos alterados', 'rotas do envelope')." },
+        "surface": { "type": "string", "minLength": 3, "description": "O que foi varrido (ex.: 'arquivos alterados', 'rotas do envelope')." },
         "total": { "type": "integer", "minimum": 0 },
         "inspected": { "type": "integer", "minimum": 0, "description": "Nunca maior que `total`." }
       }
     },
-    "verified": {
+    "citation": {
       "type": "object",
       "required": ["path", "line", "quote"],
       "properties": {
         "path": { "type": "string" },
         "line": { "type": "integer", "minimum": 1 },
         "quote": { "type": "string", "description": "Linha citada verbatim; conferida no disco pelo gate." }
+      }
+    },
+    "verified": {
+      "type": "object",
+      "required": ["path", "line", "quote", "claim"],
+      "properties": {
+        "path": { "type": "string" },
+        "line": { "type": "integer", "minimum": 1 },
+        "quote": { "type": "string", "description": "Linha citada verbatim; conferida no disco pelo gate." },
+        "claim": { "type": "string", "minLength": 20, "description": "Afirmacao especifica e atacavel sobre o que hold. Minimo de 20 chars." }
       }
     },
     "finding": {
