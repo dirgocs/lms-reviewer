@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { collectOutput } from './lms-process-utils.mjs';
+import { collectOutput, matarGrupo } from './lms-process-utils.mjs';
 import { appendFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -630,16 +630,19 @@ function runCommand({ command, args, input, cwd, env, timeoutMs }) {
   return new Promise((resolve) => {
     let timedOut = false;
     let settled = false;
+    // Spawn em GRUPO (P3-3): o timeout mata a arvore inteira do CLI, nao so o
+    // processo pai — um CLI que spawns filhos morria pela metade.
     const child = spawn(command, args, {
       cwd,
       env,
       stdio: ['pipe', 'pipe', 'pipe'],
+      detached: true,
     });
     const { getStdout, getStderr } = collectOutput(child);
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill('SIGTERM');
-      setTimeout(() => child.kill('SIGKILL'), 250).unref();
+      matarGrupo(child, 'SIGTERM');
+      setTimeout(() => matarGrupo(child, 'SIGKILL'), 250).unref();
     }, timeoutMs);
     const finish = (result) => {
       if (settled) return;
