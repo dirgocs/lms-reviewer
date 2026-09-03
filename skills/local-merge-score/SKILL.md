@@ -536,6 +536,51 @@ Diagnóstico quando algo falha: `.lms/fallback.log` traz `provider`, `result` e
 graphify, ponytail, caveman. **Denylist default:** greploop / `@greptile review`
 without Master request.
 
+## Fix mode (`pnpm lms:fix`)
+
+Quem achou o defeito tem o contexto do tamanho do defeito. O orquestrador tem a
+sessão inteira e precisa re-derivar tudo a partir de um resumo em prosa. Para
+correção localizada, o revisor é o agente mais bem posicionado do sistema.
+
+**O invariante continua de pé, e não por promessa.** Corrigir é produzir; pontuar é
+julgar. `scripts/lms-subject.mjs` mete a árvore suja no hash do `subject`, então o
+fix invalida o scorecard no instante em que toca o disco — aprovar o próprio conserto
+é estruturalmente impossível, não desaconselhado.
+
+| Env | Efeito |
+| --- | --- |
+| `LMS_FIX_MODE=off` | **default.** Nenhum fix automático. |
+| `LMS_FIX_MODE=reviewer` | O provider que achou corrige, numa segunda invocação com sandbox de escrita. |
+| `LMS_FIX_MODE=orchestrator` | Só lista os achados corrigíveis e sai; o Master decide. |
+
+**Duas invocações, nunca uma.** Pontuar é read-only (`codex exec -s read-only`,
+claude sem `Edit`). Corrigir é outra chamada, com `workspace-write` — nunca acesso
+total, nunca `Bash` no fix. Um revisor que pontua e corrige no mesmo turno tem
+incentivo a achar o que ele gosta de consertar.
+
+**Roteamento pela forma do achado** (`scripts/lms-fix-routing.mjs`): se `fix` é um
+diff, o revisor corrige; se pede decisão, escala. Caminho de risco
+(auth/tenant/fiscal/migration/signer/webhook) vai sempre para o orquestrador.
+
+**O fix nunca escreve no gate.** `.lms/`, `.claude/hooks/`, `hooks/`, `scripts/lms-*`,
+`scripts/db-exposure-gate*`, `skills/local-merge-score/`, `.git/`, `.husky/` são
+proibidos, conferidos antes e depois. Um agente com mandato de corrigir e incentivo
+de passar no gate, com escrita no gate, edita o gate.
+
+**Estourou o escopo, reverte inteiro** (`scripts/lms-fix-escopo.mjs`). Aceitar a
+parte boa de um fix que passou dos arquivos do achado seria deixar o agente negociar
+o próprio limite. A reversão é `git checkout --` por arquivo e `git clean -f` nos
+novos — nunca `reset --hard`, que apagaria trabalho do Master na mesma árvore. O
+ponto de comparação sai de `git stash create`, que não encosta na pilha de stash
+compartilhada entre worktrees.
+
+**`fixed` ≠ `claimed`.** Fix com `proof` executável (mesma allowlist do
+contraditório) que passa vira `fixed`; sem prova vira `claimed`, e a rodada seguinte
+re-revisa aquele caminho primeiro. Tudo em `.lms/fixes.jsonl`.
+
+**Quem corrigiu sai da revisão daquele diff** (`scripts/lms-fix-autoria.mjs`), por
+arquivo — não o provider inteiro, que em três correções esvaziaria a cadeia.
+
 ## Quick invoke
 
 User phrases that should trigger this skill:
