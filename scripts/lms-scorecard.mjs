@@ -262,7 +262,20 @@ export async function verifiedDiskError(scorecard, root = process.cwd()) {
 function verdictFindingsError(value) {
   const findings = Array.isArray(value.findings) ? value.findings : [];
   if (findings.length > 0) {
-    const bloqueiam = findings.filter((f) => (f.verdict ?? 'CONFIRMED') === 'CONFIRMED');
+    // P1-3 da revisao da Fase 2: `verdict` e apenas um campo do JSON — sem
+    // procedencia (verificador independente, declarado em `verdict_by` e
+    // DIFERENTE de quem escreveu o scorecard), o proprio revisor podia se
+    // auto-absolver escrevendo PLAUSIBLE. Sem procedencia, conta como CONFIRMED.
+    const bloqueiam = findings.filter((f) => {
+      if (!f.verdict) return true;
+      if (f.verdict === 'CONFIRMED') return true;
+      // Procedencia: verificador declarado e DIFERENTE de quem escreveu o scorecard.
+      const independente =
+        typeof f.verdict_by === 'string' &&
+        f.verdict_by.trim().length > 0 &&
+        f.verdict_by !== value.reviewer;
+      return !independente;
+    });
     return bloqueiam.length > 0
       ? `${bloqueiam.length} confirmed finding(s) remain: ${bloqueiam.slice(0, 3).map((f) => f.title).join('; ')}`
       : null;

@@ -226,12 +226,29 @@ test('accepts a merge-base SHA as the base identity', () => {
   );
 });
 
-test('achado rebaixado a PLAUSIBLE nao bloqueia', () => {
+test('achado rebaixado a PLAUSIBLE com verificador independente nao bloqueia', () => {
+  const card = { ...validScorecard(), score: 5, p0: 0, p1: 1, p2: 0 };
+  card.lenses['code-safety'] = { p0: 0, p1: 1, p2: 0 };
+  card.findings = [{ id: 'x', lens: 'code-safety', severity: 'P1', confidence: 85,
+    path: 'a.ts:1', title: 't', why: 'w', verdict: 'PLAUSIBLE', verdict_by: 'codex', verdict_why: 'nao reproduzi' }];
+  assert.equal(validateScorecard(card, options), true);
+});
+
+// P1-3 da revisao da Fase 2: `verdict` sem procedencia nao absolve — o proprio
+// revisor nao pode se auto-absolver escrevendo PLAUSIBLE no proprio scorecard.
+test('PLAUSIBLE sem verdict_by independente bloqueia (P1-3)', () => {
   const card = { ...validScorecard(), score: 5, p0: 0, p1: 1, p2: 0 };
   card.lenses['code-safety'] = { p0: 0, p1: 1, p2: 0 };
   card.findings = [{ id: 'x', lens: 'code-safety', severity: 'P1', confidence: 85,
     path: 'a.ts:1', title: 't', why: 'w', verdict: 'PLAUSIBLE' }];
-  assert.equal(validateScorecard(card, options), true);
+  assert.equal(validateScorecard(card, options), false);
+});
+
+test('verdict_by igual ao revisor nao absolve (P1-3)', () => {
+  const card = validScorecard();
+  card.findings = [{ id: 'x', lens: 'code-safety', severity: 'P1', confidence: 85,
+    path: 'a.ts:1', title: 't', why: 'w', verdict: 'PLAUSIBLE', verdict_by: 'grok' }];
+  assert.equal(validateScorecard(card, options), false);
 });
 
 test('achado sem verdict conta como CONFIRMED e bloqueia', () => {

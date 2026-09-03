@@ -344,7 +344,7 @@ test('verificador dentro do runFallback confirma achado que tentou passar como P
     const achado = {
       id: 'abc123', lens: 'code-safety', severity: 'P1', confidence: 90,
       path: 'a.ts:1', title: 'falta filtro de tenant', why: 'a query nao escopa',
-      verdict: 'PLAUSIBLE',
+      verdict: 'PLAUSIBLE', verdict_by: 'codex', verdict_why: 'nao reproduzi',
     };
     const chamadas = [];
     const collect = async ({ provider, prompt }) => {
@@ -389,9 +389,9 @@ test('verificador serial: veredito do outro achado nao rebaixa o segundo (P1-2)'
     // com id errado. Antes do conserto, a mesma resposta rebaixava os dois.
     const achados = [
       { id: 'bbb111', lens: 'code-safety', severity: 'P0', confidence: 95,
-        path: 'a.ts:1', title: 'P0 de tenant', why: 'sem escopo', verdict: 'PLAUSIBLE' },
+        path: 'a.ts:1', title: 'P0 de tenant', why: 'sem escopo', verdict: 'PLAUSIBLE', verdict_by: 'codex' },
       { id: 'aaa000', lens: 'code-quality', severity: 'P2', confidence: 85,
-        path: 'b.ts:1', title: 'P2 cosmético', why: 'naming', verdict: 'PLAUSIBLE' },
+        path: 'b.ts:1', title: 'P2 cosmético', why: 'naming', verdict: 'PLAUSIBLE', verdict_by: 'codex' },
     ];
     let chamadaVerificador = 0;
     const collect = async ({ provider, prompt }) => {
@@ -454,7 +454,7 @@ test('verificador FALSE_POSITIVE com prova confirma a classe no corpus (P1-1)', 
     const achado = {
       id: 'abc123', lens: 'code-safety', severity: 'P1', confidence: 90,
       path: 'a.ts:1', title: 'falta filtro de tenant', why: 'a query nao escopa',
-      verdict: 'PLAUSIBLE',
+      verdict: 'PLAUSIBLE', verdict_by: 'codex', verdict_why: 'nao reproduzi',
     };
     const collect = async ({ provider, prompt }) => {
       if (prompt.includes('DEMOLISH')) {
