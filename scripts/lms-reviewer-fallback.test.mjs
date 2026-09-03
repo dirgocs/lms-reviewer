@@ -6,9 +6,11 @@ import { escreverArquivosCitados, coberturaFixture, verificacaoFixture } from '.
 import { join } from 'node:path';
 
 import {
+  attemptProvider,
   commandFor,
   providerConfig,
   reportarDesfecho,
+  retryPrompt,
   runFallback,
 } from './lms-reviewer-fallback.mjs';
 
@@ -270,8 +272,46 @@ console.log(JSON.stringify({
 }));
 `;
 
+test('retryPrompt carrega a mensagem de validacao e o prompt original', () => {
+  const p = retryPrompt('PROMPT ORIGINAL', 'coverage is required');
+  assert.match(p, /coverage is required/);
+  assert.match(p, /PROMPT ORIGINAL/);
+  assert.match(p, /rejected/i);
+});
+
+test('attemptProvider tenta de novo quando a primeira saida esta malformada', async () => {
+  const { root, opcoes, scorecardValido } = await fixture();
+  const saidas = [{ score: 5 }, scorecardValido];
+  let chamadas = 0;
+  const collect = async () => ({ kind: 'ok', candidate: saidas[chamadas++] });
+  const r = await attemptProvider({ ...opcoes, root, collect });
+  assert.equal(chamadas, 2, 'devia ter dado uma segunda chance');
+  assert.equal(r.accepted, true);
+});
+
+test('attemptProvider NAO tenta de novo quando o scorecard e valido e reprova', async () => {
+  const { root, opcoes, scorecardValido } = await fixture();
+  let chamadas = 0;
+  const collect = async () => {
+    chamadas += 1;
+    return { kind: 'ok', candidate: { ...scorecardValido, score: 2, p1: 1,
+      lenses: { ...scorecardValido.lenses, 'code-safety': { p0: 0, p1: 1, p2: 0 } } } };
+  };
+  const r = await attemptProvider({ ...opcoes, root, collect });
+  assert.equal(chamadas, 1, 'reprovacao legitima nao ganha segunda chance');
+  assert.equal(r.rejected, true);
+});
+
 async function assertCadeiaCompleta(log) {
   assert.deepEqual((await readFile(log, 'utf8')).trim().split('\n'), ['claude', 'grok', 'codex']);
+}
+
+// Cadeia com retentativa: cada provider queima as duas tentativas por saida
+// invalida antes de cair para o proximo.
+async function assertCadeiaDuplicada(log) {
+  assert.deepEqual((await readFile(log, 'utf8')).trim().split('\n'), [
+    'claude', 'claude', 'grok', 'grok', 'codex', 'codex',
+  ]);
 }
 
 async function assertUltimoResultado(root, esperado) {
@@ -301,7 +341,34 @@ async function fixture() {
     LMS_REVIEWER_TIMEOUT_SEC: '1',
     FAKE_CALL_LOG: log,
   };
-  return { root, env, log };
+  // Scorecard como o MODELO emitiria (sem campos cravados pelo runner) e as opcoes
+  // minimas do attemptProvider — fonte unica para os testes de retentativa.
+  const scorecardValido = {
+    score: 5,
+    target: 5,
+    p0: 0,
+    p1: 0,
+    p2: 0,
+    lenses: {
+      'code-safety': { p0: 0, p1: 0, p2: 0 },
+      'code-structure': { p0: 0, p1: 0, p2: 0 },
+      'code-quality': { p0: 0, p1: 0, p2: 0 },
+      'code-efficiency': { p0: 0, p1: 0, p2: 0 },
+    },
+    findings: [],
+    coverage: coberturaFixture,
+    verified: verificacaoFixture,
+    inspected: provaDeLeituraFixture,
+  };
+  const opcoes = {
+    provider: 'claude',
+    config: providerConfig(env),
+    base,
+    env,
+    fallow: 'pass',
+    changedPaths: new Set(['a.ts', 'b.ts', 'c.ts']),
+  };
+  return { root, env, log, scorecardValido, opcoes };
 }
 
 const provaDeLeituraFixture = [
@@ -427,8 +494,10 @@ test('malformed output falls through, but a low score STOPS the chain', async ()
     assert.equal(result.ok, false);
     assert.equal(result.rejectedBy, 'grok');
     assert.equal(result.acceptedBy, undefined);
-    // codex nunca e chamado: o grok ja deu o veredito.
-    assert.deepEqual((await readFile(log, 'utf8')).trim().split('\n'), ['claude', 'grok']);
+    // codex nunca e chamado: o grok ja deu o veredito. O claude aparece duas vezes:
+    // saida malformada ganha UMA retentativa com o erro de validacao (Task 7) antes
+    // de cair para o proximo provider.
+    assert.deepEqual((await readFile(log, 'utf8')).trim().split('\n'), ['claude', 'claude', 'grok']);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -451,11 +520,13 @@ test('a review that opened no files is discarded as invalid output', async () =>
     });
     assert.equal(result.ok, false);
     assert.equal(result.rejectedBy, undefined);
+    // Cada provider queima as duas tentativas (original + retentativa por forma)
+    // antes de a cadeia cair para o proximo.
     assert.deepEqual(
       result.attempts.map((attempt) => attempt.result),
       ['invalid-output', 'invalid-output', 'invalid-output'],
     );
-    await assertCadeiaCompleta(log);
+    await assertCadeiaDuplicada(log);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

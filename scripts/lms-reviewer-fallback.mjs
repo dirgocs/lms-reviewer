@@ -914,6 +914,31 @@ export async function collectHeadless({
   return { kind: 'ok', candidate: parse(result.stdout, result.stderr) };
 }
 
+/**
+ * Segunda chance por ERRO DE FORMA, nunca por veredito.
+ *
+ * A cadeia tratava JSON malformado como "o provider nao fez o trabalho" e caia para
+ * o proximo — uma virgula custava um revisor, e o ultimo da fila herdava a culpa. O
+ * que a validacao ja sabe (qual campo, o que se esperava) volta para quem errou.
+ *
+ * Reprovacao legitima NAO entra aqui: pedir de novo a quem reprovou e procurar um
+ * "sim" — exatamente o que a cadeia foi desenhada para nao fazer.
+ */
+export function retryPrompt(promptOriginal, erro) {
+  return [
+    'Your previous output was rejected by the scorecard validator.',
+    '',
+    `VALIDATION ERROR: ${erro}`,
+    '',
+    'Fix ONLY that. Your judgement of the code stands — do not re-review, do not',
+    'change the score, do not drop findings. Emit the same review with the format',
+    'corrected. Output exactly one JSON object, no prose, no markdown fences.',
+    '',
+    '--- ORIGINAL INSTRUCTIONS ---',
+    promptOriginal,
+  ].join('\n');
+}
+
 export async function attemptProvider({
   root,
   provider,
@@ -928,6 +953,7 @@ export async function attemptProvider({
   autonomy = 'reviewer',
   round,
   origemCommit = '',
+  maxTentativas = 2,
 }) {
   if (!PROVIDERS.includes(provider)) {
     return { accepted: false, attempt: { provider, result: 'unknown-provider' } };
@@ -939,41 +965,63 @@ export async function attemptProvider({
     changed_files: changedPaths?.size ?? 0,
     changed_lines: 0,
   };
-  const started = Date.now();
-  const result = await collect({ root, provider, config, base, prompt, env });
-  const durationMs = Date.now() - started;
-  if (result.kind !== 'ok') {
-    await logAttempt(
-      root,
-      provider,
-      result.kind,
-      durationMs,
-      '',
-      telemetryData(rodada, 'reviewer', provider, config),
-    );
-    return { accepted: false, attempt: { provider, result: result.kind, durationMs } };
-  }
+  // Laco de retentativa: a segunda volta so acontece quando a primeira falhou por
+  // FORMA (scorecardFormError), nunca por veredito — reprovar e resposta valida,
+  // nao erro de formato. A volta usa retryPrompt, que devolve a mensagem exata de
+  // validacao para quem errou.
+  let entrada = prompt;
+  let scorecard;
+  let durationMs = 0;
+  for (let tentativa = 1; tentativa <= maxTentativas; tentativa += 1) {
+    const started = Date.now();
+    const result = await collect({ root, provider, config, base, prompt: entrada, env });
+    durationMs = Date.now() - started;
+    if (result.kind !== 'ok') {
+      await logAttempt(
+        root,
+        provider,
+        result.kind,
+        durationMs,
+        '',
+        telemetryData(rodada, 'reviewer', provider, config),
+      );
+      return { accepted: false, attempt: { provider, result: result.kind, durationMs } };
+    }
 
-  const scorecard = stampScorecard(result.candidate, provider, fallow, base, { subject, autonomy });
+    scorecard = stampScorecard(result.candidate, provider, fallow, base, { subject, autonomy });
 
-  // Primeiro: o provider fez o trabalho? Só a FORMA importa aqui — e "fez o
-  // trabalho" inclui ter aberto arquivos, não só ter emitido JSON.
-  const formError =
-    scorecardFormError(scorecard, { reviewer: provider, base, subject }) ??
-    (scorecard ? await inspectionError(scorecard, changedPaths ?? new Set(), root) : null);
-  if (formError) {
-    await logAttempt(
-      root,
-      provider,
-      'invalid-output',
-      durationMs,
-      `reason=${formError.replaceAll(' ', '_')}`,
-      telemetryData(rodada, 'reviewer', provider, config, scorecard),
-    );
-    return {
-      accepted: false,
-      attempt: { provider, result: 'invalid-output', reason: formError, durationMs },
-    };
+    // Primeiro: o provider fez o trabalho? Só a FORMA importa aqui — e "fez o
+    // trabalho" inclui ter aberto arquivos, não só ter emitido JSON.
+    const formError =
+      scorecardFormError(scorecard, { reviewer: provider, base, subject }) ??
+      (scorecard ? await inspectionError(scorecard, changedPaths ?? new Set(), root) : null);
+    if (formError && tentativa < maxTentativas) {
+      await logAttempt(
+        root,
+        provider,
+        'retry',
+        durationMs,
+        `reason=${formError.replaceAll(' ', '_')}`,
+        telemetryData(rodada, 'reviewer', provider, config, scorecard),
+      );
+      entrada = retryPrompt(entrada, formError);
+      continue;
+    }
+    if (formError) {
+      await logAttempt(
+        root,
+        provider,
+        'invalid-output',
+        durationMs,
+        `reason=${formError.replaceAll(' ', '_')}`,
+        telemetryData(rodada, 'reviewer', provider, config, scorecard),
+      );
+      return {
+        accepted: false,
+        attempt: { provider, result: 'invalid-output', reason: formError, durationMs },
+      };
+    }
+    break;
   }
 
   // Política de severidade (LMS_SEVERITY_POLICY=1): P2 do reviewer com confianca >= 80
