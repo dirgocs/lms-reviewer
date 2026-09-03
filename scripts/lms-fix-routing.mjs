@@ -26,6 +26,12 @@ export const CAMINHOS_PROIBIDOS = [
   /^scripts\/db-exposure-gate/,
   /^scripts\/local-merge-score/,
   /^skills\/local-merge-score\//,
+  // P2-4 da revisao da Fase 3: o mapeamento documentado (.agents/.claude ->
+  // skills/) e o pacote instalado no consumidor sao o MESMO gate — sem eles,
+  // um achado apontando para a fonte roteava como corrigivel pelo revisor.
+  /^\.agents\/skills\/local-merge-score\//,
+  /^\.claude\/skills\/local-merge-score\//,
+  /node_modules\/@dirgocs\/lms-reviewer\//,
   /^\.git\//,
   /^\.husky\//,
 ];

@@ -58,3 +58,18 @@ test('caminhoProibido cobre o gate inteiro', () => {
   }
   assert.equal(caminhoProibido('services/api/src/routes/rooms.ts'), false);
 });
+
+// P2-4 da revisao da Fase 3: o comentario do proprio modulo documenta o
+// mapeamento (.agents/.claude -> skills/) mas a lista so cobria metade — no repo
+// consumidor, .agents/ e a FONTE e node_modules e onde o pacote vive.
+test('denylist cobre o mapeamento inteiro que ela documenta (P2-4)', () => {
+  for (const p of [
+    '.agents/skills/local-merge-score/SKILL.md',
+    '.claude/skills/local-merge-score/SKILL.md',
+    'node_modules/@dirgocs/lms-reviewer/scripts/lms-fix.mjs',
+  ]) {
+    assert.equal(caminhoProibido(p), true, p);
+  }
+  // e o roteador nunca manda o revisor corrigir o proprio pacote
+  assert.equal(corrigivelPeloRevisor(achado({ path: '.agents/skills/local-merge-score/SKILL.md:1' })).ok, false);
+});
