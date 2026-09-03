@@ -1723,7 +1723,7 @@ function parseVeredito(stdout = '', stderr = '') {
  * malformado ou fora do teto, o achado sai CONFIRMED e continua bloqueando. Ausencia
  * de segunda opiniao nao absolve — mesmo principio do contraditorio e do fallow.
  */
-async function verificarAchados({
+export async function verificarAchados({
   root, config, env, collect, ordem, autor, provider, base, changed, scorecard, outputPathFor, attempts,
 }) {
   const findings = Array.isArray(scorecard?.findings) ? scorecard.findings : [];

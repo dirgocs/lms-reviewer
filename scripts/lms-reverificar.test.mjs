@@ -96,3 +96,97 @@ test('parseReverificacao extrai o objeto com results e ignora o resto (Task 3)',
   assert.deepEqual(parseReverificacao(bruto, ''), { results: [{ id: 'aaa111', status: 'closed' }] });
   assert.equal(parseReverificacao('{"score": 5}', ''), null);
 });
+
+// Task 4 da Fase 4: wiring com o verificador da Fase 2 — fechamento so vale
+// quando o verificador independente nao derruba, e NUNCA publica scorecard.
+import { mkdtemp, mkdir, writeFile, readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { execFile as execFileCallback } from 'node:child_process';
+import { promisify } from 'node:util';
+import { runReverificacao } from './lms-reverificar.mjs';
+
+const execFile = promisify(execFileCallback);
+
+async function repoPosFix() {
+  const root = await mkdtemp(join(tmpdir(), 'lms-reverif-'));
+  await execFile('git', ['init', '-q'], { cwd: root });
+  await execFile('git', ['config', 'user.email', 'lms@test'], { cwd: root });
+  await execFile('git', ['config', 'user.name', 'lms'], { cwd: root });
+  await writeFile(join(root, 'a.ts'), 'const original = 1;\n');
+  await execFile('git', ['add', '.'], { cwd: root });
+  await execFile('git', ['commit', '-qm', 'base'], { cwd: root });
+  const { stdout: sha } = await execFile('git', ['rev-parse', 'HEAD'], { cwd: root });
+  await writeFile(join(root, 'a.ts'), 'const original = 2;\n'); // o fix na arvore
+  await mkdir(join(root, '.lms'), { recursive: true });
+  await writeFile(join(root, '.lms', 'last.json'), JSON.stringify({
+    reviewer: 'grok',
+    base: 'HEAD',
+    score: 3,
+    findings: [{ id: 'aaa111', lens: 'code-safety', severity: 'P1', confidence: 90,
+      path: 'a.ts:1', title: 'falta filtro de tenant', why: 'w',
+      acceptance: ['a query cita tenantId'], verdict: 'CONFIRMED', found_by: 'codex' }],
+  }));
+  await writeFile(join(root, '.lms', 'fixes.jsonl'), JSON.stringify({
+    commit: sha, marco: sha, id: 'aaa111', provider: 'codex',
+    outcome: 'fixed', arquivos: ['a.ts'], motivo: 'corrigi',
+  }));
+  return { root, sha };
+}
+
+test('runReverificacao fecha achado que o verificador nao derruba (Task 4)', async () => {
+  const { root } = await repoPosFix();
+  const chamadas = [];
+  const collect = async ({ prompt }) => {
+    chamadas.push(prompt);
+    if (prompt.includes('DEMOLISH')) {
+      // Verificador da Fase 2: nao derruba o fechamento (PLAUSIBLE nao reabre).
+      return { kind: 'ok', candidate: { id: 'aaa111', verdict: 'PLAUSIBLE', why: 'nao reproduzi' } };
+    }
+    return {
+      kind: 'ok',
+      candidate: { results: [{ id: 'aaa111', status: 'closed', why: 'aceitacao passa', evidence: 'a.ts:1' }] },
+    };
+  };
+  const r = await runReverificacao({ root, env: {}, collect });
+  assert.equal(r.status, 'ok');
+  assert.deepEqual(r.fechados, ['aaa111']);
+  // Duas chamadas: re-verificacao + verificador independente.
+  assert.equal(chamadas.filter((p) => p.includes('still OPEN')).length, 1, 're-verificacao foi chamada');
+  assert.equal(chamadas.filter((p) => p.includes('DEMOLISH')).length, 1);
+  const registro = JSON.parse(await readFile(join(root, '.lms', 'reverificacao.json'), 'utf8'));
+  assert.equal(registro.results[0].status, 'closed');
+  // NUNCA publica: o scorecard em cache fica intacto.
+  const last = JSON.parse(await readFile(join(root, '.lms', 'last.json'), 'utf8'));
+  assert.equal(last.findings[0].reverificado, undefined);
+});
+
+test('runReverificacao: closed derrubado pelo verificador volta a open (Task 4)', async () => {
+  const { root } = await repoPosFix();
+  const collect = async ({ prompt }) => {
+    if (prompt.includes('DEMOLISH')) {
+      return { kind: 'ok', candidate: { id: 'aaa111', verdict: 'CONFIRMED', why: 'o defeito segue la' } };
+    }
+    return { kind: 'ok', candidate: { results: [{ id: 'aaa111', status: 'closed', why: 'x', evidence: 'y' }] } };
+  };
+  const r = await runReverificacao({ root, env: {}, collect });
+  assert.deepEqual(r.abertos, ['aaa111']);
+  assert.deepEqual(r.fechados, []);
+});
+
+test('runReverificacao: LMS_VERIFY=0 recusa a re-verificacao inteira (Task 4)', async () => {
+  const { root } = await repoPosFix();
+  let chamou = false;
+  const collect = async () => { chamou = true; return { kind: 'ok', candidate: null }; };
+  const r = await runReverificacao({ root, env: { LMS_VERIFY: '0' }, collect });
+  assert.equal(r.status, 'recusada');
+  assert.equal(chamou, false, 'fechar sem contraditorio e o buraco');
+});
+
+test('runReverificacao: sem marco no fixes.jsonl recusa (Task 4)', async () => {
+  const { root } = await repoPosFix();
+  await writeFile(join(root, '.lms', 'fixes.jsonl'), JSON.stringify({ commit: 'x', outcome: 'fixed', arquivos: ['a.ts'] }));
+  const r = await runReverificacao({ root, env: {}, collect: async () => ({ kind: 'ok', candidate: null }) });
+  assert.equal(r.status, 'recusada');
+  assert.match(r.motivo, /marco/i);
+});

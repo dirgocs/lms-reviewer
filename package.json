@@ -13,6 +13,7 @@
     "lms-exempt-paths": "./scripts/lms-exempt-paths.mjs",
     "lms-fix": "./scripts/lms-fix.mjs",
     "lms-push-gate": "./scripts/lms-push-gate.mjs",
+    "lms-reverificar": "./scripts/lms-reverificar.mjs",
     "lms-reviewer": "./scripts/lms-reviewer-spawn.sh",
     "lms-reviewer-tmux": "./scripts/lms-reviewer-tmux.mjs",
     "lms-trigger": "./scripts/lms-reviewer-trigger.sh"
@@ -22,7 +23,8 @@
     "lms:reviewer": "bash scripts/lms-reviewer-spawn.sh",
     "lms:reviewer:tmux": "node scripts/lms-reviewer-tmux.mjs",
     "lms:trigger": "bash scripts/lms-reviewer-trigger.sh",
-    "lms:fix": "node scripts/lms-fix.mjs"
+    "lms:fix": "node scripts/lms-fix.mjs",
+    "lms:reverificar": "node scripts/lms-reverificar.mjs"
   },
   "files": [
     "scripts/",

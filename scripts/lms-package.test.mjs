@@ -18,6 +18,7 @@ test('v1.2 expoe todos os comandos usados pelo consumidor', () => {
     'lms-exempt-paths': './scripts/lms-exempt-paths.mjs',
     // P3-1 da revisao da Fase 3: o consumidor dispara bins, nao scripts internos.
     'lms-fix': './scripts/lms-fix.mjs',
+    'lms-reverificar': './scripts/lms-reverificar.mjs',
   });
 });
 
