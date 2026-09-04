@@ -27,6 +27,7 @@ import {
   escolherAgente,
 } from './lms-bug-agents.mjs';
 import { deveBootstrapar, runBootstrap } from './lms-bug-bootstrap.mjs';
+import { abrirIssue } from './lms-tracker.mjs';
 
 /**
  * Tags de padrões ESTRUTURAIS agnósticos (código HTTP, nome de exceção,
@@ -222,6 +223,7 @@ export async function runTriageBug({
   argv = [],
   pergunta,
   stdin = lerStdin,
+  exec,
 } = {}) {
   // Task 5: --init é bootstrap, não triagem — sai antes de tudo, inclusive do
   // gate de LMS_VERIFY: gerar arquivo de agente não abre issue nenhuma.
@@ -336,12 +338,17 @@ export async function runTriageBug({
   const rota = agente?.escalar_para
     ?? (corrigivelPeloRevisor(final).ok ? 'revisor' : 'orquestrador');
 
+  // Task 6: o rastreador é um extra. `none` (default) não chama binário nenhum, e
+  // qualquer falha aqui avisa e segue — o achado fica em .lms/ de todo jeito.
+  const issue = await abrirIssue(config.bugAgents.tracker, final, { env, exec, agente });
+
   const registro = {
     at: new Date().toISOString(),
     outcome,
     rota,
     agente: agente?.nome ?? null,
     verificador: true,
+    issue,
     achado: final,
   };
   await mkdir(join(root, '.lms'), { recursive: true });

@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
+import { resetConfigCache } from './lms-config.mjs';
 import { runTriageBug } from './lms-triage-bug.mjs';
 import {
   achadoDoSinal,
@@ -244,4 +245,80 @@ test('runTriageBug: stdin e arquivo dao o mesmo achado (Task 4)', async () => {
   assert.match(doStdin.achado.path, /workers\/x\.py:2/);
   await rm(rootArquivo, { recursive: true, force: true });
   await rm(rootStdin, { recursive: true, force: true });
+});
+
+// Task 6 da Fase 5: um passo novo ANTES da regra da Fase 3 — o `escalar_para` do
+// agente casado vence quando declarado; sem ele, corrigivelPeloRevisor decide.
+async function repoComAgente({ escalarPara, tracker } = {}) {
+  const root = await repoComSinal();
+  await writeFile(
+    join(root, '.agents', 'bug-triage', 'workers.md'),
+    [
+      '---', 'nome: workers', 'descricao: workers', 'match:', '  paths:', '    - "^workers/"',
+      ...(escalarPara ? [`escalar_para: ${escalarPara}`] : []),
+      '---', '', 'Triar workers.', '',
+    ].join('\n'),
+  );
+  if (tracker) {
+    await writeFile(
+      join(root, 'lms.config.json'),
+      JSON.stringify({ bugAgents: { tracker } }, null, 2),
+    );
+  }
+  await execFile('git', ['add', '.'], { cwd: root });
+  await execFile('git', ['commit', '-q', '--allow-empty', '-m', 'agente atualizado'], { cwd: root });
+  resetConfigCache();
+  return root;
+}
+
+const collectConfirmado = async ({ prompt }) => {
+  if (prompt.includes('DEMOLISH')) {
+    const id = (prompt.match(/"id": "([^"]+)"/) ?? [])[1] ?? '???';
+    return { kind: 'ok', candidate: { id, verdict: 'CONFIRMED', why: 'reproduzi' } };
+  }
+  return {
+    kind: 'ok',
+    candidate: { path: 'workers/x.py:2', lens: 'code-safety', title: 'quebra no worker', why: 'o stack cita workers/x.py:2', fix: 'corrigir o loop' },
+  };
+};
+
+test('rota: escalar_para do agente vence a regra da Fase 3 (Task 6)', async () => {
+  const root = await repoComAgente({ escalarPara: 'orchestrator-fiscal' });
+  const r = await runTriageBug({ root, env: {}, collect: collectConfirmado, argv: [join(root, 'sinal.log')] });
+  assert.equal(r.rota, 'orchestrator-fiscal');
+  await rm(root, { recursive: true, force: true });
+});
+
+test('rota: sem escalar_para, a Fase 3 decide (Task 6)', async () => {
+  const root = await repoComAgente();
+  const r = await runTriageBug({ root, env: {}, collect: collectConfirmado, argv: [join(root, 'sinal.log')] });
+  assert.ok(['revisor', 'orquestrador'].includes(r.rota), 'rota vem de corrigivelPeloRevisor');
+  await rm(root, { recursive: true, force: true });
+});
+
+test('tracker configurado abre issue; falha do tracker nao derruba a triagem (Task 6)', async () => {
+  const root = await repoComAgente({ tracker: 'github' });
+  const r = await runTriageBug({
+    root, env: {}, collect: collectConfirmado, argv: [join(root, 'sinal.log')],
+    exec: async () => ({ stdout: 'https://github.com/o/r/issues/9\n', stderr: '', code: 0 }),
+  });
+  assert.equal(r.exitCode, 0);
+  assert.equal(r.issue.aberta, true);
+  assert.equal(r.issue.url, 'https://github.com/o/r/issues/9');
+  const gravado = JSON.parse(await readFile(join(root, '.lms', `bug-${r.achado.id}.json`), 'utf8'));
+  assert.equal(gravado.issue.url, 'https://github.com/o/r/issues/9');
+  await rm(root, { recursive: true, force: true });
+});
+
+test('tracker que falha avisa e segue — o achado fica gravado (Task 6)', async () => {
+  const root = await repoComAgente({ tracker: 'github' });
+  const r = await runTriageBug({
+    root, env: {}, collect: collectConfirmado, argv: [join(root, 'sinal.log')],
+    exec: async () => { const e = new Error('spawn gh ENOENT'); e.code = 'ENOENT'; throw e; },
+  });
+  assert.equal(r.exitCode, 0, 'falha de ferramenta nunca decide');
+  assert.equal(r.issue.aberta, false);
+  const gravado = JSON.parse(await readFile(join(root, '.lms', `bug-${r.achado.id}.json`), 'utf8'));
+  assert.equal(gravado.achado.id, r.achado.id, 'o achado fica em .lms mesmo sem issue');
+  await rm(root, { recursive: true, force: true });
 });
