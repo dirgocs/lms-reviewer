@@ -212,3 +212,36 @@ test('runTriageBug: agente que nao casou NAO dispara auto-init (Task 5)', async 
   assert.equal(r.bootstrap, undefined, 'nenhum agente cobre o sinal != gerar arquivos');
   await rm(root, { recursive: true, force: true });
 });
+
+// Spec §3.1: a entrada e caminho de arquivo OU stdin (`kubectl logs … | lms-triage-bug`).
+// Os dois caminhos precisam dar o MESMO achado — a origem muda, o achado nao.
+test('runTriageBug: stdin e arquivo dao o mesmo achado (Task 4)', async () => {
+  const texto = 'HTTP 500 em workers/x.py:2\ncStat 656\n';
+  const collect = async ({ prompt }) => {
+    if (prompt.includes('DEMOLISH')) {
+      const id = (prompt.match(/"id": "([^"]+)"/) ?? [])[1] ?? '???';
+      return { kind: 'ok', candidate: { id, verdict: 'CONFIRMED', why: 'reproduzi' } };
+    }
+    return {
+      kind: 'ok',
+      candidate: { path: 'workers/x.py:2', lens: 'code-safety', title: 'quebra no worker', why: 'o stack cita workers/x.py:2', fix: 'corrigir o loop' },
+    };
+  };
+
+  const rootArquivo = await repoComSinal();
+  const doArquivo = await runTriageBug({
+    root: rootArquivo, env: {}, collect, argv: [join(rootArquivo, 'sinal.log')],
+  });
+
+  const rootStdin = await repoComSinal();
+  const doStdin = await runTriageBug({
+    root: rootStdin, env: {}, collect, argv: [], stdin: async () => texto,
+  });
+
+  assert.equal(doStdin.exitCode, 0, 'stdin e entrada valida');
+  assert.equal(doStdin.achado.id, doArquivo.achado.id, 'mesmo sinal, mesmo achado');
+  assert.equal(doStdin.achado.origem.sinal, doArquivo.achado.origem.sinal, 'mesmo hash do sinal');
+  assert.match(doStdin.achado.path, /workers\/x\.py:2/);
+  await rm(rootArquivo, { recursive: true, force: true });
+  await rm(rootStdin, { recursive: true, force: true });
+});

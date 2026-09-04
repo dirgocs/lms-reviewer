@@ -198,6 +198,19 @@ export function achadoDoSinal(parsed, sinal, agente, provider) {
   return achado;
 }
 
+/**
+ * Sinal por pipe (`kubectl logs … | lms-triage-bug`). Terminal interativo não é
+ * sinal: devolve vazio em vez de travar esperando um EOF que ninguém vai dar —
+ * o runner então recusa com exit 2 nomeando "sinal vazio".
+ */
+async function lerStdin() {
+  if (process.stdin.isTTY) return '';
+  let texto = '';
+  process.stdin.setEncoding('utf8');
+  for await (const pedaco of process.stdin) texto += pedaco;
+  return texto;
+}
+
 // Task 4 da Fase 5: wiring — o achado da triagem passa SEMPRE pelo verificador da
 // Fase 2. LMS_VERIFY=0 recusa a triagem inteira (exit 1): abrir issue sem
 // contraditório é o buraco. Nenhum veredito novo: CONFIRMED = verificado,
@@ -208,6 +221,7 @@ export async function runTriageBug({
   collect = collectHeadless,
   argv = [],
   pergunta,
+  stdin = lerStdin,
 } = {}) {
   // Task 5: --init é bootstrap, não triagem — sai antes de tudo, inclusive do
   // gate de LMS_VERIFY: gerar arquivo de agente não abre issue nenhuma.
@@ -229,13 +243,16 @@ export async function runTriageBug({
     return { exitCode: 1, motivo, abertos: [], fechados: [] };
   }
 
-  // Sinal: arquivo (argv[0]) ou stdin. Nada mais — sem coleta, sem watcher.
-  const caminhoSinal = argv[0];
+  // Sinal: arquivo (primeiro argumento que não é flag) ou stdin. Nada mais —
+  // sem coleta, sem watcher (spec §6). A origem muda; o achado, não.
+  const caminhoSinal = argv.find((arg) => !arg.startsWith('--'));
   let texto = '';
   let origem = 'stdin';
   if (caminhoSinal) {
     origem = `arquivo:${resolve(root, caminhoSinal)}`;
     texto = await readFile(resolve(root, caminhoSinal), 'utf8');
+  } else {
+    texto = await stdin();
   }
 
   const config = loadConfig(root);
