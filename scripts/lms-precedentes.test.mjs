@@ -70,3 +70,47 @@ test('respeita o teto descartando o mais antigo', async () => {
   assert.equal(linhas.length, TETO_PRECEDENTES);
   assert.equal(linhas.some((l) => l.includes('classe 0')), false);
 });
+
+// Task 7 da Fase 5: `relativo` opcional isola os precedentes por agente em
+// .lms/precedentes-bug/<agente>.md. Memoria de falso-positivo de diff e de
+// dominio nao se misturam — o teto e o dedupe passam a valer POR ARQUIVO.
+const DO_AGENTE = '.lms/precedentes-bug/workers.md';
+
+test('relativo alternativo isola o corpus do agente do global (Task 7)', async () => {
+  const root = await repoTemporario();
+  await registrarPrecedente(root, {
+    classe: 'cStat 656 como falha de certificado',
+    motivo: 'e bloqueio de 1h por CNPJ, nao falha de cert',
+    origem: 'triagem',
+  }, { relativo: DO_AGENTE });
+
+  assert.deepEqual(await lerPrecedentes(root), [], 'o corpus global segue intacto');
+  const doAgente = await lerPrecedentes(root, { relativo: DO_AGENTE });
+  assert.equal(doAgente.length, 1);
+  assert.match(doAgente[0], /cStat 656 como falha de certificado/);
+});
+
+test('dedupe e teto valem por arquivo, nao entre arquivos (Task 7)', async () => {
+  const root = await repoTemporario();
+  const p = { classe: 'race condicional', motivo: 'motivo longo o suficiente', origem: 'x' };
+
+  await registrarPrecedente(root, p);
+  await registrarPrecedente(root, p, { relativo: DO_AGENTE });
+  assert.equal((await lerPrecedentes(root)).length, 1, 'a mesma classe cabe em cada arquivo');
+  assert.equal((await lerPrecedentes(root, { relativo: DO_AGENTE })).length, 1);
+
+  // Dedupe dentro do arquivo do agente continua valendo.
+  await registrarPrecedente(root, p, { relativo: DO_AGENTE });
+  assert.equal((await lerPrecedentes(root, { relativo: DO_AGENTE })).length, 1);
+
+  // Teto por arquivo.
+  for (let i = 0; i < TETO_PRECEDENTES + 5; i += 1) {
+    await registrarPrecedente(root, {
+      classe: `classe numero ${i}`,
+      motivo: 'motivo longo o suficiente',
+      origem: 'x',
+    }, { relativo: DO_AGENTE });
+  }
+  assert.equal((await lerPrecedentes(root, { relativo: DO_AGENTE })).length, TETO_PRECEDENTES);
+  assert.equal((await lerPrecedentes(root)).length, 1, 'o global nao foi tocado');
+});

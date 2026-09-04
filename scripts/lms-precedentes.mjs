@@ -26,20 +26,23 @@ const CABECALHO = [
   '',
 ];
 
-function caminho(root) {
-  return join(root, RELATIVO);
+// Fase 5: o caminho e parametrizavel para isolar os precedentes POR AGENTE em
+// .lms/precedentes-bug/<agente>.md. Memoria de falso-positivo de diff e de
+// dominio nao se misturam, e o teto e o dedupe passam a valer por arquivo.
+function caminho(root, relativo = RELATIVO) {
+  return join(root, relativo);
 }
 
-export async function lerPrecedentes(root) {
+export async function lerPrecedentes(root, { relativo = RELATIVO } = {}) {
   try {
-    const texto = await readFile(caminho(root), 'utf8');
+    const texto = await readFile(caminho(root, relativo), 'utf8');
     return texto.split('\n').filter((linha) => linha.startsWith('- ')).slice(-TETO_PRECEDENTES);
   } catch {
     return [];
   }
 }
 
-export async function registrarPrecedente(root, { classe, motivo, origem }) {
+export async function registrarPrecedente(root, { classe, motivo, origem }, { relativo = RELATIVO } = {}) {
   // P2-5 da revisao da Fase 2: texto de modelo nao entra verbatim. Quebra de
   // linha com '- ' no meio injetava um precedente inteiro novo no prompt de
   // toda revisao futura — o corpus e persistente, uma linha ruim contamina
@@ -51,13 +54,13 @@ export async function registrarPrecedente(root, { classe, motivo, origem }) {
   // P2-5: dedupe pelo campo em negrito, nao por substring — 'race' dentro de
   // 'race condicional' bloqueava classe distinta. E P3-1: dedupe contra o
   // ARQUIVO inteiro, nao so as 40 que cabem no teto.
-  const todas = (await readFile(caminho(root), 'utf8').catch(() => ''))
+  const todas = (await readFile(caminho(root, relativo), 'utf8').catch(() => ''))
     .split('\n')
     .filter((linha) => linha.startsWith('- '));
   if (todas.some((linha) => linha.startsWith(`- **${limpa}**`))) return;
 
   const nova = `- **${limpa}** — ${porQue} _(${String(origem ?? 'lms').trim()})_`;
   const linhas = [...todas, nova].slice(-TETO_PRECEDENTES);
-  await mkdir(dirname(caminho(root)), { recursive: true });
-  await writeFile(caminho(root), [...CABECALHO, ...linhas, ''].join('\n'), 'utf8');
+  await mkdir(dirname(caminho(root, relativo)), { recursive: true });
+  await writeFile(caminho(root, relativo), [...CABECALHO, ...linhas, ''].join('\n'), 'utf8');
 }

@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 import { resetConfigCache } from './lms-config.mjs';
+import { lerPrecedentes } from './lms-precedentes.mjs';
 import { runTriageBug } from './lms-triage-bug.mjs';
 import {
   achadoDoSinal,
@@ -320,5 +321,57 @@ test('tracker que falha avisa e segue — o achado fica gravado (Task 6)', async
   assert.equal(r.issue.aberta, false);
   const gravado = JSON.parse(await readFile(join(root, '.lms', `bug-${r.achado.id}.json`), 'utf8'));
   assert.equal(gravado.achado.id, r.achado.id, 'o achado fica em .lms mesmo sem issue');
+  await rm(root, { recursive: true, force: true });
+});
+
+// Task 7 da Fase 5: triagem errada vira precedente DAQUELE agente, em
+// .lms/precedentes-bug/<agente>.md — nunca no corpus global do diff.
+const collectDerrubado = async ({ prompt }) => {
+  if (prompt.includes('DEMOLISH')) {
+    const id = (prompt.match(/"id": "([^"]+)"/) ?? [])[1] ?? '???';
+    return { kind: 'ok', candidate: { id, verdict: 'PLAUSIBLE', why: 'nao reproduzi o 500 com o payload' } };
+  }
+  return {
+    kind: 'ok',
+    candidate: { path: 'workers/x.py:2', lens: 'code-safety', title: 'quebra no worker', why: 'o stack cita workers/x.py:2', fix: 'corrigir o loop' },
+  };
+};
+
+test('triagem derrubada registra precedente do agente, nao no global (Task 7)', async () => {
+  const root = await repoComAgente();
+  const r = await runTriageBug({ root, env: {}, collect: collectDerrubado, argv: [join(root, 'sinal.log')] });
+  assert.equal(r.outcome, 'backlog');
+
+  const doAgente = await lerPrecedentes(root, { relativo: '.lms/precedentes-bug/workers.md' });
+  assert.equal(doAgente.length, 1, 'a triagem derrubada virou precedente do agente');
+  assert.match(doAgente[0], /quebra no worker/);
+  assert.deepEqual(await lerPrecedentes(root), [], 'o corpus global do diff segue intacto');
+  await rm(root, { recursive: true, force: true });
+});
+
+test('triagem confirmada NAO vira precedente (Task 7)', async () => {
+  const root = await repoComAgente();
+  const r = await runTriageBug({ root, env: {}, collect: collectConfirmado, argv: [join(root, 'sinal.log')] });
+  assert.equal(r.outcome, 'verificado');
+  assert.deepEqual(
+    await lerPrecedentes(root, { relativo: '.lms/precedentes-bug/workers.md' }),
+    [],
+    'so triagem errada vira memoria',
+  );
+  await rm(root, { recursive: true, force: true });
+});
+
+test('a proxima triagem do mesmo agente le os precedentes dele (Task 7)', async () => {
+  const root = await repoComAgente();
+  await runTriageBug({ root, env: {}, collect: collectDerrubado, argv: [join(root, 'sinal.log')] });
+
+  let promptDaTriagem = '';
+  const collectEspiao = async (args) => {
+    if (!args.prompt.includes('DEMOLISH')) promptDaTriagem = args.prompt;
+    return collectDerrubado(args);
+  };
+  await runTriageBug({ root, env: {}, collect: collectEspiao, argv: [join(root, 'sinal.log')] });
+  assert.match(promptDaTriagem, /PRECEDENTES deste agente/);
+  assert.match(promptDaTriagem, /quebra no worker/);
   await rm(root, { recursive: true, force: true });
 });

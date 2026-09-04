@@ -28,6 +28,16 @@ import {
 } from './lms-bug-agents.mjs';
 import { deveBootstrapar, runBootstrap } from './lms-bug-bootstrap.mjs';
 import { abrirIssue } from './lms-tracker.mjs';
+import { lerPrecedentes, registrarPrecedente } from './lms-precedentes.mjs';
+
+/**
+ * Corpus de precedentes DAQUELE agente (spec §3.5). Nunca o `.lms/precedentes.md`
+ * global: memoria de falso-positivo de diff e de dominio nao se misturam.
+ */
+function precedentesDoAgente(nome) {
+  const limpo = String(nome ?? 'sem-agente').toLowerCase().replace(/[^a-z0-9-]/g, '-') || 'sem-agente';
+  return `.lms/precedentes-bug/${limpo}.md`;
+}
 
 /**
  * Tags de padrões ESTRUTURAIS agnósticos (código HTTP, nome de exceção,
@@ -297,7 +307,12 @@ export async function runTriageBug({
 
   const chainConfig = providerConfig(env);
   const provider = chainConfig.order[0];
-  const prompt = triagemPrompt(sinalBase, agente, []);
+  // Task 7: a proxima triagem que casar este agente le o que ja foi derrubado nele.
+  const relativoPrecedentes = agente ? precedentesDoAgente(agente.nome) : null;
+  const precedentes = relativoPrecedentes
+    ? await lerPrecedentes(root, { relativo: relativoPrecedentes })
+    : [];
+  const prompt = triagemPrompt(sinalBase, agente, precedentes);
   const saida = await collect({
     root, provider, config: chainConfig, base: 'HEAD', env,
     prompt, parse: parseTriagem,
@@ -332,6 +347,16 @@ export async function runTriageBug({
   const outcome = final.verdict === 'CONFIRMED'
     ? 'verificado'
     : final.verdict === 'PLAUSIBLE' ? 'backlog' : 'recusado';
+
+  // Task 7: triagem errada (PLAUSIBLE em backlog, ou FALSE_POSITIVE provado) vira
+  // memoria daquele agente — e o que impede o mesmo match errado na proxima vez.
+  if (relativoPrecedentes && outcome !== 'verificado') {
+    await registrarPrecedente(root, {
+      classe: final.title,
+      motivo: `${outcome} pelo verificador: ${final.verdict_why ?? final.why ?? 'sem prova'}`,
+      origem: `triagem/${agente.nome}`,
+    }, { relativo: relativoPrecedentes });
+  }
 
   // Rota: escalar_para do agente vence quando declarado (Task 6 aprofunda o
   // rastreador); senão a regra da Fase 3 decide como sempre.
