@@ -1,6 +1,6 @@
 {
   "name": "@dirgocs/lms-reviewer",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "private": true,
   "type": "module",
   "description": "Gate de push bloqueante: cadeia de revisores headless (Claude/Grok/Codex) com scorecard verificado contra o disco",
@@ -35,6 +35,7 @@
     "hooks/",
     "skills/",
     "docs/",
+    "evals/",
     "lms.config.example.json",
     "README.md",
     "CHANGELOG.md"

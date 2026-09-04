@@ -614,6 +614,35 @@ no stderr). Falha de ferramenta (comando ausente, timeout) avisa e segue — err
 infra nunca decide sozinho. Timeout em GRUPO (`LMS_TEST_TIMEOUT_MS`, default 10 min);
 `LMS_TEST_GATE=0` desliga.
 
+## Triagem de bug (`pnpm exec lms-triage-bug`)
+
+O LMS julga diff. O que chega de **runtime** — log de exceção, 500, rejeição de
+integração, texto de issue — entra por aqui e vira um achado do MESMO contrato do
+scorecard, com a mesma prova de disco e o mesmo contraditório.
+
+```bash
+pnpm exec lms-triage-bug sinal.log      # ou:  kubectl logs … | pnpm exec lms-triage-bug
+pnpm exec lms-triage-bug --init         # gera os agentes deste repo (--guided para revisar cada resposta)
+```
+
+Sinal → achado → **verificador adversarial da Fase 2** → rota → rastreador
+opcional. A saída é `.lms/bug-<id>.json` (runtime, gitignored) e, quando
+`bugAgents.tracker` está configurado, uma issue.
+
+**Invariante:** o agente de domínio influencia **onde olhar**, nunca **o que o
+gate aceita**. Ele só roda COMMITADO (instrução que orienta o veredito não pode
+ser editável no mesmo turno em que é lida), o `path` é conferido no disco com
+linha, e o veredito vem do verificador independente.
+
+A inteligência de domínio mora no repo consumidor, em `.agents/bug-triage/*.md`
+(um `.md` por superfície, com `match`, `fontes_de_verdade` e
+`verificar_antes_de_abrir_issue`) — nunca no pacote.
+
+Fail-closed em tudo: `LMS_VERIFY=0` recusa a triagem inteira (exit 1); sinal vazio,
+ou sem caminho existente citado **e** sem agente que case, sai 2 nomeando o que
+faltou. A triagem NÃO pontua, não escreve `.lms/last.json` e não libera push.
+Triagem derrubada vira precedente daquele agente em `.lms/precedentes-bug/`.
+
 ## Esperar o veredito (`.lms/veredito.json`)
 
 Toda cadeia grava `.lms/veredito.json` no fim de QUALQUER desfecho, e o

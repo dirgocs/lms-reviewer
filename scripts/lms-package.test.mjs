@@ -8,8 +8,8 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 const skill = readFileSync(join(root, 'skills/local-merge-score/SKILL.md'), 'utf8');
 
-test('v1.3 expoe todos os comandos usados pelo consumidor', () => {
-  assert.equal(pkg.version, '1.3.0');
+test('v1.4 expoe todos os comandos usados pelo consumidor', () => {
+  assert.equal(pkg.version, '1.4.0');
   assert.deepEqual(pkg.bin, {
     'lms-trigger': './scripts/lms-reviewer-trigger.sh',
     'lms-reviewer': './scripts/lms-reviewer-spawn.sh',
@@ -25,7 +25,9 @@ test('v1.3 expoe todos os comandos usados pelo consumidor', () => {
 });
 
 test('artefato publicado inclui hook, skill, docs e config de exemplo', () => {
-  for (const path of ['scripts/', 'hooks/', 'skills/', 'docs/', 'lms.config.example.json', 'README.md', 'CHANGELOG.md']) {
+  // Fase 5: o corpus de eval viaja no artefato — sem ele `lms-eval` (e `--bugs`)
+  // nao tem regua nenhuma para medir no consumidor.
+  for (const path of ['scripts/', 'hooks/', 'skills/', 'docs/', 'evals/', 'lms.config.example.json', 'README.md', 'CHANGELOG.md']) {
     assert.ok(pkg.files.includes(path), `package files precisa incluir ${path}`);
   }
 });
@@ -73,4 +75,22 @@ test('skill recebe regras de negocio do projeto consumidor', () => {
   assert.doesNotMatch(skill, /hotel_id/);
   assert.match(skill, /AGENTS\.md/);
   assert.match(skill, /lms\.config\.json/);
+});
+
+// Task 9 da Fase 5: a triagem de bug e interface publica — precisa estar
+// documentada no README (tabela de binarios) e na SKILL, com o invariante.
+test('README e SKILL documentam a triagem de bug (Task 9)', () => {
+  const readme = readFileSync(join(root, 'README.md'), 'utf8');
+  assert.match(readme, /lms-triage-bug/, 'a tabela de binarios inclui o bin novo');
+
+  assert.match(skill, /## Triagem de bug/, 'a SKILL tem a secao da triagem');
+  assert.match(skill, /onde olhar/i, 'o invariante: o agente influencia onde olhar');
+  assert.match(skill, /pnpm exec lms-triage-bug/, 'a SKILL documenta o bin, nao o script interno');
+  assert.match(skill, /\.lms\/veredito\.json/, 'como esperar o veredito');
+});
+
+test('CHANGELOG registra a 1.4.0 com a triagem de bug (Task 9)', () => {
+  const changelog = readFileSync(join(root, 'CHANGELOG.md'), 'utf8');
+  assert.match(changelog, /## \[1\.4\.0\]/);
+  assert.match(changelog, /lms-triage-bug/);
 });

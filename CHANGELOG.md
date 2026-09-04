@@ -8,6 +8,55 @@ O que conta como *breaking* aqui: mudar o schema do scorecard, o contrato de
 gate. **Afrouxar o gate é breaking mesmo que nada quebre tecnicamente** — quem instalou
 isto instalou o rigor, e um gate que passa a deixar passar é uma regressão silenciosa.
 
+## [1.4.0] - 2026-09-04
+
+Fase 5: entrada para o que chega de runtime, com a inteligência de domínio
+versionada no repo consumidor. Spec e plano em
+`docs/lms-v2/2026-09-03-lms-v2-fase5.md` e `...-fase5-plano.md`.
+
+### Adicionado
+
+- **Triagem de bug** (`lms-triage-bug`, bin e `pnpm lms:triage:bug`) — sinal de
+  runtime (arquivo ou stdin) vira achado do contrato do scorecard, com `path`
+  conferido no disco com linha, e passa SEMPRE pelo verificador adversarial da
+  Fase 2. `LMS_VERIFY=0` recusa a triagem inteira (exit 1); sinal vazio ou sem
+  caminho existente e sem agente que case sai 2 nomeando o que faltou. Não
+  pontua, não escreve `.lms/last.json`, não libera push; `PLAUSIBLE` vira backlog.
+- **Agentes de triagem no repo consumidor** (`.agents/bug-triage/*.md`) —
+  frontmatter com parser próprio (zero dependência nova); match pontua
+  `paths`×3, `sinal`×2 e `tags`×1, empate pelo nome menor. **Só agente COMMITADO
+  roda** (untracked/modificado → recusa nomeada). Frontmatter inválido é
+  descartado com aviso, nunca "match parcial".
+- **`bugAgents` em `lms.config.json`** — `dir` (default `.agents/bug-triage`),
+  `tracker` contra allowlist fechada e `guided`, todos opcionais.
+- **Bootstrap** (`lms-triage-bug --init`, e `--guided`) — varre topologia,
+  instruções, superfícies e a história de `fix:` para propor de 1 a 6 agentes com
+  MOTIVO; UMA confirmação, nada escrito antes dela. Auto-init só com o diretório
+  vazio/ausente: diretório com agente que não casou nunca gera arquivo.
+- **Roteamento por agente e rastreador** — `escalar_para` do agente vence a regra
+  da Fase 3 quando declarado. `none` (default), `github` (`gh issue create`) e
+  `linear` (GraphQL via `curl`, token em `LINEAR_API_KEY`). Falha de ferramenta
+  avisa e segue: o achado fica em `.lms/bug-<id>.json`.
+- **Precedentes por agente** (`.lms/precedentes-bug/<agente>.md`) —
+  `lerPrecedentes`/`registrarPrecedente` ganham `{ relativo }`; teto e dedupe
+  passam a valer por arquivo. Nunca no corpus global do diff.
+- **Golden set de triagem** (`evals/bugs/`, `lms-eval --bugs`) — mede acerto de
+  match de agente e de localização separadamente; `nao_deve` é o análogo de
+  `fp_conhecidos`. Pisos `LMS_EVAL_BUG_MATCH_MIN` (0.8) e `LMS_EVAL_BUG_PATH_MIN`
+  (0.6); corpus vazio continua sendo erro.
+- **Veredito persistido** (`.lms/veredito.json`) — toda cadeia grava o desfecho
+  (`accepted`, `refuted`, `rejected`, `timeout`, `invalid-output`) e o
+  `lms-trigger` imprime `LMS VEREDITO: <estado>` como última linha do stderr,
+  com exit 0 só em `accepted`. Evidência KDT-68: lanes ficavam horas paradas
+  "aguardando veredito" com a cadeia já fechada.
+- O corpus `evals/` passa a viajar no artefato publicado.
+
+### Corrigido
+
+- `lms-eval` apontava o corpus para `<raiz>/casos`, que nunca existiu (o corpus
+  mora em `evals/casos`): `pnpm lms:eval` morria com "corpus de eval ausente".
+- `lms-triage-bug` prometia entrada por stdin mas só lia sinal de arquivo.
+
 ## [1.3.0] - 2026-09-03
 
 Fase 4: fechamento do laço fix → revisão. Spec e plano em

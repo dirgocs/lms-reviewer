@@ -47,6 +47,10 @@ Adicione `.lms/` ao `.gitignore`: scorecards, logs e telemetria são estado loca
 | `lms-reviewer` | Abre a sessão isolada do reviewer |
 | `lms-reviewer-tmux` | Executa a cadeia dirigida pelas TUIs no tmux |
 | `lms-exempt-paths` | Classifica uma lista de paths usando `lms.config.json` |
+| `lms-fix` | Aplica o fix de um achado roteado ao revisor |
+| `lms-reverificar` | Pergunta ao revisor quais ids continuam abertos após o fix |
+| `lms-eval` | Roda o golden set (`--bugs` roda o de triagem) |
+| `lms-triage-bug` | Transforma sinal de runtime em achado verificado (`--init` gera os agentes) |
 
 ## Por que o gate é confiável
 
