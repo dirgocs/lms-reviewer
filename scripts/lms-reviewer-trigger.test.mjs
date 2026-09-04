@@ -32,6 +32,9 @@ if (process.env.LMS_TEST_RUNNER_VEREDITO) {
   }));
 }
 if (process.env.LMS_TEST_RUNNER_MODE === 'fail') process.exit(9);
+// KDT-68: a cadeia fecha ACEITA mas o scorecard nao passa na validacao do gate
+// (stale, subject mudou). Sai 0 sem last.json valido.
+if (process.env.LMS_TEST_RUNNER_MODE === 'sem-scorecard') process.exit(0);
 await writeFile(process.env.LMS_REVIEWER_ROOT + '/.lms/last.json', JSON.stringify({
   reviewer: 'grok', score: 5, target: 5, base: 'HEAD~1', p0: 0, p1: 0, p2: 0,
   lenses: {
@@ -317,21 +320,38 @@ test('trigger preserva os campos que o runner gravou nesta rodada (1.4.1)', asyn
   }
 });
 
-// A trava de P1-1 continua: estado divergente do arquivo significa que quem manda
-// e o trigger, e ai o arquivo e reescrito (sem herdar campos de outro desfecho).
-test('estado divergente do arquivo faz o trigger reescrever o veredito (1.4.1)', async () => {
+// 1.4.2 (KDT-68): a cadeia fechou ACEITA e o gate reprovou o scorecard. O trigger
+// reescrevia o veredito da cadeia como `timeout` com tudo null — o desfecho da
+// cadeia sumia. Autorizacao e veredito sao coisas diferentes: o exit 1 continua
+// (P1-1 intacto: aceite lido de arquivo NUNCA libera push), mas o arquivo guarda o
+// que a cadeia decidiu.
+test('gate reprovado nao apaga o desfecho da cadeia (1.4.2)', async () => {
   const { root, runner } = await fixture({ reviewer: 'grok', score: 2 });
   try {
     const r = await runTrigger({
       root,
       runner,
-      extraEnv: { LMS_TEST_RUNNER_MODE: 'fail', LMS_TEST_RUNNER_VEREDITO: 'accepted' },
+      extraEnv: { LMS_TEST_RUNNER_MODE: 'sem-scorecard', LMS_TEST_RUNNER_VEREDITO: 'accepted' },
     });
-    assert.equal(r.code, 1, 'accepted do runner sem scorecard validado nao libera');
+    assert.equal(r.code, 1, 'aceite lido de arquivo nunca autoriza o push');
+    const veredito = JSON.parse(await readFile(join(root, '.lms', 'veredito.json'), 'utf8'));
+    assert.equal(veredito.estado, 'accepted', 'o desfecho da cadeia sobrevive ao gate reprovado');
+    assert.equal(veredito.reviewer, 'claude', 'com os campos que a cadeia preencheu');
+    assert.equal(veredito.refutador, 'grok');
+    assert.equal(ultimaLinha(r.stderr), 'LMS VEREDITO: accepted');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('cadeia que morre sem gravar veredito continua saindo timeout (1.4.2)', async () => {
+  const { root, runner } = await fixture({ reviewer: 'grok', score: 2 });
+  try {
+    const r = await runTrigger({ root, runner, extraEnv: { LMS_TEST_RUNNER_MODE: 'fail' } });
+    assert.equal(r.code, 1);
     assert.equal(ultimaLinha(r.stderr), 'LMS VEREDITO: timeout');
     const veredito = JSON.parse(await readFile(join(root, '.lms', 'veredito.json'), 'utf8'));
     assert.equal(veredito.estado, 'timeout');
-    assert.equal(veredito.reviewer, null, 'campos de um desfecho que nao vale nao sobrevivem');
   } finally {
     await rm(root, { recursive: true, force: true });
   }

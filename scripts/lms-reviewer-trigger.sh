@@ -130,10 +130,17 @@ veredito_estado() {
 # `until [ -f .lms/veredito.json ]` lia o desfecho da rodada ANTERIOR.
 finalizar() {
   estado="${1:-}"
-  if [ -z "$estado" ]; then
+  autorizado=0
+  if [ -n "$estado" ]; then
+    # Com argumento: o trigger julgou (scorecard validado). E a UNICA origem de
+    # autorizacao — P1-1: aceite lido de arquivo jamais libera push.
+    autorizado=1
+  else
+    # Sem argumento: o gate nao autorizou, mas o VEREDITO e da cadeia, nao do gate.
+    # 1.4.2 (KDT-68): aqui o `accepted` que a cadeia acabara de gravar virava
+    # `timeout` com tudo null, e o desfecho real sumia. O arquivo foi apagado no
+    # inicio da rodada, entao o que estiver nele e desta cadeia.
     estado="$(veredito_estado)" || estado=""
-    # Sem argumento nunca se deriva aceite: quem autoriza e o scorecard validado.
-    [ "$estado" = "accepted" ] && estado="timeout"
   fi
   [ -n "$estado" ] || estado="timeout"
 
@@ -149,7 +156,7 @@ finalizar() {
   fi
 
   echo "LMS VEREDITO: $estado" >&2
-  if [ "$estado" = "accepted" ]; then exit 0; fi
+  if [ "$estado" = "accepted" ] && [ "$autorizado" = "1" ]; then exit 0; fi
   exit 1
 }
 

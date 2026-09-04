@@ -1946,3 +1946,36 @@ test('runFallback grava reviewer no veredito refutado (1.4.1)', async () => {
   assert.equal(veredito.refutador, 'grok');
   assert.equal(veredito.score, 5, 'o score derrubado e o que a cadeia sabia');
 });
+
+// 1.4.2 (KDT-68): a cadeia terminou `grok timeout -> claude accepted 5 -> claude
+// upheld` e o veredito ficou `timeout`, tudo null. O desfecho de um provider
+// INTERMEDIARIO virou o final. O veredito e do fim da cadeia, com precedencia
+// accepted > refuted > rejected > invalid-output > timeout.
+test('cadeia timeout -> accepted -> upheld grava accepted (1.4.2)', async () => {
+  const { root, env, scorecardValido } = await fixture();
+  const collect = async ({ provider, prompt }) => {
+    if (prompt.includes('DEMOLISH')) {
+      return { kind: 'ok', candidate: { id: 'abc123', verdict: 'CONFIRMED', why: 'confere' } };
+    }
+    // Primeiro provider da ordem estoura o teto: falha INTERMEDIARIA.
+    if (provider === 'claude') return { kind: 'timeout' };
+    if (provider === 'grok') return { kind: 'ok', candidate: scorecardValido };
+    // Contraditorio: olhou e nao derrubou.
+    return { kind: 'ok', candidate: { refuted: false, confidence: 0, inspected: provaDeLeituraFixture } };
+  };
+  const r = await runFallback({ root, base, env, collect });
+  assert.equal(r.ok, true, 'a cadeia aceitou');
+
+  const veredito = JSON.parse(await readFile(join(root, '.lms', 'veredito.json'), 'utf8'));
+  assert.equal(veredito.estado, 'accepted', 'o timeout do claude era intermediario, nao o desfecho');
+  assert.equal(veredito.reviewer, 'grok');
+  assert.equal(veredito.score, 5);
+});
+
+test('cadeia timeout -> timeout grava timeout (1.4.2)', async () => {
+  const { root, env } = await fixture();
+  await runFallback({ root, base, env, collect: async () => ({ kind: 'timeout' }) });
+
+  const veredito = JSON.parse(await readFile(join(root, '.lms', 'veredito.json'), 'utf8'));
+  assert.equal(veredito.estado, 'timeout', 'ninguem julgou: timeout e o desfecho de verdade');
+});
