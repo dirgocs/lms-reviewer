@@ -25,18 +25,25 @@ versionada no repo consumidor. Spec e plano em
 - **Agentes de triagem no repo consumidor** (`.agents/bug-triage/*.md`) —
   frontmatter com parser próprio (zero dependência nova); match pontua
   `paths`×3, `sinal`×2 e `tags`×1, empate pelo nome menor. **Só agente COMMITADO
-  roda** (untracked/modificado → recusa nomeada). Frontmatter inválido é
-  descartado com aviso, nunca "match parcial".
+  e ATIVO roda**: untracked/modificado → recusa nomeada; `status: rascunho` →
+  recusa dizendo o que preencher (agente sem a chave `status` segue ativo).
+  Frontmatter inválido é descartado com aviso, nunca "match parcial".
 - **`bugAgents` em `lms.config.json`** — `dir` (default `.agents/bug-triage`),
   `tracker` contra allowlist fechada e `guided`, todos opcionais.
 - **Bootstrap** (`lms-triage-bug --init`, e `--guided`) — varre topologia,
   instruções, superfícies e a história de `fix:` para propor de 1 a 6 agentes com
   MOTIVO; UMA confirmação, nada escrito antes dela. Auto-init só com o diretório
-  vazio/ausente: diretório com agente que não casou nunca gera arquivo.
+  vazio/ausente: diretório com agente que não casou nunca gera arquivo. O
+  `match.sinal` proposto sai do que o código JÁ NOMEIA na superfície (classe de
+  exceção, código de erro literal, mensagem de `raise`/`throw`) e vem declarado em
+  `revisar:`; agente sem checklist de domínio nasce `status: rascunho`.
 - **Roteamento por agente e rastreador** — `escalar_para` do agente vence a regra
   da Fase 3 quando declarado. `none` (default), `github` (`gh issue create`) e
-  `linear` (GraphQL via `curl`, token em `LINEAR_API_KEY`). Falha de ferramenta
-  avisa e segue: o achado fica em `.lms/bug-<id>.json`.
+  `linear` (GraphQL via `curl`, token em `LINEAR_API_KEY`). `bugAgents.tracker`
+  aceita a string do nome ou o objeto com as opções daquele tracker
+  (`{ "linear": { "teamId": "…" } }`); `LINEAR_TEAM_ID` em env vence a config, e
+  token nunca vem da config. Falha de ferramenta avisa e segue: o achado fica em
+  `.lms/bug-<id>.json`.
 - **Precedentes por agente** (`.lms/precedentes-bug/<agente>.md`) —
   `lerPrecedentes`/`registrarPrecedente` ganham `{ relativo }`; teto e dedupe
   passam a valer por arquivo. Nunca no corpus global do diff.
@@ -44,7 +51,8 @@ versionada no repo consumidor. Spec e plano em
   match de agente e de localização separadamente; `nao_deve` é o análogo de
   `fp_conhecidos`. Pisos `LMS_EVAL_BUG_MATCH_MIN` (0.8) e `LMS_EVAL_BUG_PATH_MIN`
   (0.6); corpus vazio continua sendo erro.
-- **Veredito persistido** (`.lms/veredito.json`) — toda cadeia grava o desfecho
+- **Veredito persistido** (`.lms/veredito.json`) — a cadeia apaga o veredito da
+  rodada anterior no início e grava o desfecho
   (`accepted`, `refuted`, `rejected`, `timeout`, `invalid-output`) e o
   `lms-trigger` imprime `LMS VEREDITO: <estado>` como última linha do stderr,
   com exit 0 só em `accepted`. Evidência KDT-68: lanes ficavam horas paradas

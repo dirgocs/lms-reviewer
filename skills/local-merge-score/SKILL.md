@@ -638,6 +638,14 @@ A inteligência de domínio mora no repo consumidor, em `.agents/bug-triage/*.md
 (um `.md` por superfície, com `match`, `fontes_de_verdade` e
 `verificar_antes_de_abrir_issue`) — nunca no pacote.
 
+**Rascunho não roda.** O bootstrap escreve `status: rascunho` quando não tem o que
+só você sabe (`verificar_antes_de_abrir_issue`), e o runner recusa (exit 1)
+dizendo o que preencher. Commitado **e** preenchido (`status: ativo`) = ativo.
+Agente escrito à mão sem a chave `status` segue ativo. O `match.sinal` proposto
+pelo bootstrap sai do que o **código já nomeia** (classe de exceção, código de
+erro literal, mensagem de `raise`/`throw`) e vem declarado em `revisar:` —
+é ponto de partida inferido, não verdade.
+
 Fail-closed em tudo: `LMS_VERIFY=0` recusa a triagem inteira (exit 1); sinal vazio,
 ou sem caminho existente citado **e** sem agente que case, sai 2 nomeando o que
 faltou. A triagem NÃO pontua, não escreve `.lms/last.json` e não libera push.

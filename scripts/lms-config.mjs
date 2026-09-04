@@ -38,6 +38,7 @@ export const TRACKERS = ['none', 'github', 'linear'];
 const BUG_AGENTS_PADRAO = Object.freeze({
   dir: '.agents/bug-triage',
   tracker: 'none',
+  trackerOpcoes: Object.freeze({}),
   guided: false,
 });
 
@@ -112,12 +113,41 @@ function str(value) {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
-/** Fase 5: normaliza bugAgents — dir com str, tracker contra TRACKERS, guided boolean. */
+/**
+ * Fase 5: normaliza bugAgents — dir com str, tracker contra TRACKERS, guided boolean.
+ *
+ * `tracker` aceita duas formas: a string do nome (`"linear"`) e o objeto com as
+ * opcoes daquele tracker (`{ "linear": { "teamId": "..." } }`). Sai sempre como
+ * nome em `tracker` mais `trackerOpcoes`, entao quem ja lia `tracker` como string
+ * nao muda. Segredo NUNCA vem daqui: token continua so em env.
+ */
+function normalizarTracker(valor) {
+  if (typeof valor === 'string') {
+    return TRACKERS.includes(valor) ? { tracker: valor, opcoes: {} } : { tracker: 'none', opcoes: {} };
+  }
+  if (valor && typeof valor === 'object' && !Array.isArray(valor)) {
+    const nomes = Object.keys(valor).filter((nome) => TRACKERS.includes(nome) && nome !== 'none');
+    // Mais de um tracker declarado e ambiguo: escolher sozinho seria adivinhar
+    // para onde a issue vai. Cai em none, que nao chama binario nenhum.
+    if (nomes.length !== 1 || Object.keys(valor).length !== nomes.length) {
+      return { tracker: 'none', opcoes: {} };
+    }
+    const opcoes = valor[nomes[0]];
+    return {
+      tracker: nomes[0],
+      opcoes: opcoes && typeof opcoes === 'object' && !Array.isArray(opcoes) ? { ...opcoes } : {},
+    };
+  }
+  return { tracker: 'none', opcoes: {} };
+}
+
 function normalizarBugAgents(valor) {
   if (!valor || typeof valor !== 'object' || Array.isArray(valor)) return BUG_AGENTS_PADRAO;
+  const { tracker, opcoes } = normalizarTracker(valor.tracker);
   return Object.freeze({
     dir: str(valor.dir) ?? BUG_AGENTS_PADRAO.dir,
-    tracker: TRACKERS.includes(valor.tracker) ? valor.tracker : 'none',
+    tracker,
+    trackerOpcoes: Object.freeze(opcoes),
     guided: valor.guided === true,
   });
 }

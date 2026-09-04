@@ -56,13 +56,42 @@ test('valor não-string é descartado em vez de virar caminho inválido', () => 
 // Fase 5 Task 2: bugAgents na config — dir, tracker (allowlist) e guided.
 test('bugAgents: defaults quando ausente, tracker fora da allowlist cai para none (Task 2)', () => {
   const vazio = loadConfig(projeto());
-  assert.deepEqual(vazio.bugAgents, { dir: '.agents/bug-triage', tracker: 'none', guided: false });
+  assert.deepEqual(vazio.bugAgents, { dir: '.agents/bug-triage', tracker: 'none', trackerOpcoes: {}, guided: false });
 
   const jira = loadConfig(projeto(JSON.stringify({ bugAgents: { tracker: 'jira' } })));
-  assert.deepEqual(jira.bugAgents, { dir: '.agents/bug-triage', tracker: 'none', guided: false });
+  assert.deepEqual(jira.bugAgents, { dir: '.agents/bug-triage', tracker: 'none', trackerOpcoes: {}, guided: false });
 
   const custom = loadConfig(
     projeto(JSON.stringify({ bugAgents: { dir: 'debug/agents', tracker: 'github', guided: true } })),
   );
-  assert.deepEqual(custom.bugAgents, { dir: 'debug/agents', tracker: 'github', guided: true });
+  assert.deepEqual(custom.bugAgents, { dir: 'debug/agents', tracker: 'github', trackerOpcoes: {}, guided: true });
+});
+
+// Ajuste 3 (ordem do Master): `bugAgents.tracker` aceita tambem a forma objeto,
+// `{ "linear": { "teamId": "..." } }`, sem quebrar a forma string. O nome do
+// tracker continua saindo como string em `tracker`; as opcoes vao em
+// `trackerOpcoes`, para todo o codigo que ja le `tracker` seguir igual.
+test('bugAgents.tracker aceita objeto com opcoes do tracker (Ajuste 3)', () => {
+  const objeto = loadConfig(
+    projeto(JSON.stringify({ bugAgents: { tracker: { linear: { teamId: 'time-9' } } } })),
+  );
+  assert.equal(objeto.bugAgents.tracker, 'linear');
+  assert.deepEqual(objeto.bugAgents.trackerOpcoes, { teamId: 'time-9' });
+
+  const string = loadConfig(projeto(JSON.stringify({ bugAgents: { tracker: 'github' } })));
+  assert.equal(string.bugAgents.tracker, 'github');
+  assert.deepEqual(string.bugAgents.trackerOpcoes, {}, 'forma string segue sem opcoes');
+
+  // Allowlist continua fechada: nome fora dela cai em none, nao roda comando.
+  const desconhecido = loadConfig(
+    projeto(JSON.stringify({ bugAgents: { tracker: { jira: { projeto: 'X' } } } })),
+  );
+  assert.equal(desconhecido.bugAgents.tracker, 'none');
+  assert.deepEqual(desconhecido.bugAgents.trackerOpcoes, {});
+
+  // Objeto com mais de um tracker e ambiguo: cai em none em vez de escolher sozinho.
+  const ambiguo = loadConfig(
+    projeto(JSON.stringify({ bugAgents: { tracker: { linear: {}, github: {} } } })),
+  );
+  assert.equal(ambiguo.bugAgents.tracker, 'none');
 });

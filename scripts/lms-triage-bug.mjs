@@ -23,6 +23,7 @@ import { loadConfig } from './lms-config.mjs';
 import { corrigivelPeloRevisor } from './lms-fix-routing.mjs';
 import {
   agenteCommitado,
+  agenteEmRascunho,
   carregarAgentes,
   escolherAgente,
 } from './lms-bug-agents.mjs';
@@ -280,6 +281,15 @@ export async function runTriageBug({
       console.error(`lms-triage-bug: recusada — ${motivo}`);
       return { exitCode: 1, motivo, abertos: [], fechados: [] };
     }
+    // Rascunho nao roda: falta o que so o consumidor sabe. A mensagem diz o que
+    // preencher, porque "recusado" sem o proximo passo vira arquivo abandonado.
+    if (agenteEmRascunho(agente)) {
+      const motivo = `agente '${agente.nome}' está em rascunho — preencha `
+        + `verificar_antes_de_abrir_issue em ${agente.arquivo} (o que SEMPRE conferir `
+        + `antes de abrir issue nesta superfície), troque status para ativo e commite`;
+      console.error(`lms-triage-bug: recusada — ${motivo}`);
+      return { exitCode: 1, motivo, abertos: [], fechados: [] };
+    }
   }
 
   if (!sinalBase.texto.trim() || (sinalBase.caminhos_citados.length === 0 && !agente)) {
@@ -365,7 +375,9 @@ export async function runTriageBug({
 
   // Task 6: o rastreador é um extra. `none` (default) não chama binário nenhum, e
   // qualquer falha aqui avisa e segue — o achado fica em .lms/ de todo jeito.
-  const issue = await abrirIssue(config.bugAgents.tracker, final, { env, exec, agente });
+  const issue = await abrirIssue(config.bugAgents.tracker, final, {
+    env, exec, agente, opcoes: config.bugAgents.trackerOpcoes,
+  });
 
   const registro = {
     at: new Date().toISOString(),

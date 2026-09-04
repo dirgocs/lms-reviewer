@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { escreverArquivosCitados, coberturaFixture, verificacaoFixture } from './lms-test-fixtures.mjs';
@@ -1820,4 +1821,31 @@ test('registrarVeredito falha fechada: estado desconhecido nunca vira accepted (
   const veredito = await lerVeredito(root);
   assert.notEqual(veredito.estado, 'accepted');
   assert.equal(veredito.estado, 'invalid-output', 'estado fora da allowlist cai no mais fraco');
+});
+
+// Ajuste 4 (ordem do Master): `.lms/veredito.json` e o desfecho DESTA rodada, nao
+// um lock. A cadeia apaga o veredito da rodada anterior no inicio, para que
+// "existe" signifique sempre "terminou agora" — inclusive se a cadeia morrer
+// antes de gravar o proprio.
+test('runFallback apaga o veredito da rodada anterior no inicio da cadeia (Ajuste 4)', async () => {
+  const { root, env } = await fixture();
+  const caminho = join(root, '.lms', 'veredito.json');
+  await mkdir(join(root, '.lms'), { recursive: true });
+  await writeFile(caminho, JSON.stringify({ estado: 'accepted', reviewer: 'claude' }), 'utf8');
+
+  let existiaDuranteACadeia = true;
+  const collect = async () => {
+    existiaDuranteACadeia = existsSync(caminho);
+    return { kind: 'timeout' };
+  };
+  await runFallback({ root, base, env, collect });
+
+  assert.equal(
+    existiaDuranteACadeia,
+    false,
+    'o veredito da rodada anterior nao pode sobreviver ao inicio da cadeia',
+  );
+  const veredito = JSON.parse(await readFile(caminho, 'utf8'));
+  assert.equal(veredito.estado, 'timeout', 'o veredito final e o desta rodada');
+  assert.equal(veredito.reviewer, null, 'nada da rodada anterior vaza');
 });

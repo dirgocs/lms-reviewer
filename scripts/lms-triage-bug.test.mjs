@@ -375,3 +375,56 @@ test('a proxima triagem do mesmo agente le os precedentes dele (Task 7)', async 
   assert.match(promptDaTriagem, /quebra no worker/);
   await rm(root, { recursive: true, force: true });
 });
+
+// Ajuste 2 (ordem do Master): o runner RECUSA executar agente em rascunho, com
+// mensagem dizendo o que preencher. Rascunho nao dispara auto-init: o agente
+// existe, so nao esta pronto — gerar arquivos por cima seria a resposta errada.
+test('runTriageBug recusa agente em rascunho dizendo o que preencher (Ajuste 2)', async () => {
+  const root = await repoComSinal();
+  await writeFile(
+    join(root, '.agents', 'bug-triage', 'workers.md'),
+    [
+      '---', 'nome: workers', 'descricao: workers', 'status: rascunho',
+      'match:', '  paths:', '    - "^workers/"',
+      '---', '', 'Triar workers.', '',
+    ].join('\n'),
+  );
+  await execFile('git', ['add', '.'], { cwd: root });
+  await execFile('git', ['commit', '-q', '--allow-empty', '-m', 'agente em rascunho'], { cwd: root });
+  resetConfigCache();
+
+  let chamou = false;
+  const r = await runTriageBug({
+    root, env: {},
+    collect: async () => { chamou = true; return { kind: 'ok', candidate: null }; },
+    argv: [join(root, 'sinal.log')],
+  });
+  assert.equal(r.exitCode, 1, 'rascunho recusa, nao tria');
+  assert.equal(chamou, false, 'nenhum provider e invocado');
+  assert.match(r.motivo, /rascunho/i);
+  assert.match(r.motivo, /verificar_antes_de_abrir_issue/, 'a mensagem diz o que preencher');
+  assert.match(r.motivo, /status/, 'e diz como ativar');
+  assert.equal(r.bootstrap, undefined, 'agente em rascunho nao dispara bootstrap');
+  await rm(root, { recursive: true, force: true });
+});
+
+test('agente commitado e preenchido roda normalmente (Ajuste 2)', async () => {
+  const root = await repoComSinal();
+  await writeFile(
+    join(root, '.agents', 'bug-triage', 'workers.md'),
+    [
+      '---', 'nome: workers', 'descricao: workers', 'status: ativo',
+      'match:', '  paths:', '    - "^workers/"',
+      'verificar_antes_de_abrir_issue:', '    - "conferir a fila antes de culpar a rota"',
+      '---', '', 'Triar workers.', '',
+    ].join('\n'),
+  );
+  await execFile('git', ['add', '.'], { cwd: root });
+  await execFile('git', ['commit', '-q', '--allow-empty', '-m', 'agente ativo'], { cwd: root });
+  resetConfigCache();
+
+  const r = await runTriageBug({ root, env: {}, collect: collectConfirmado, argv: [join(root, 'sinal.log')] });
+  assert.equal(r.exitCode, 0);
+  assert.equal(r.outcome, 'verificado');
+  await rm(root, { recursive: true, force: true });
+});

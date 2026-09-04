@@ -142,3 +142,56 @@ test('tracker desconhecido cai em none em vez de rodar comando (Task 6)', async 
   assert.equal(chamou, false);
   assert.equal(r.aberta, false);
 });
+
+// Ajuste 3 (ordem do Master): `teamId` pode vir da config; o env VENCE. Token
+// nunca: `LINEAR_API_KEY` continua so em env, porque config e versionada.
+test('linear: teamId da config e usado quando o env nao traz (Ajuste 3)', async () => {
+  const chamadas = [];
+  const r = await abrirIssue('linear', achado, {
+    env: { LINEAR_API_KEY: 'lin_api_segredo' },
+    opcoes: { teamId: 'time-da-config' },
+    exec: async (cmd, args) => {
+      chamadas.push({ cmd, args });
+      return {
+        stdout: `${JSON.stringify({ data: { issueCreate: { issue: { url: 'https://linear.app/x/issue/A-2' } } } })}\n200`,
+        stderr: '',
+        code: 0,
+      };
+    },
+  });
+  assert.equal(r.aberta, true);
+  const iPayload = chamadas[0].args.indexOf('--data-binary');
+  const json = JSON.parse(await readFile(String(chamadas[0].args[iPayload + 1]).slice(1), 'utf8'));
+  assert.equal(json.variables.input.teamId, 'time-da-config');
+});
+
+test('linear: LINEAR_TEAM_ID do env vence a config (Ajuste 3)', async () => {
+  const chamadas = [];
+  await abrirIssue('linear', achado, {
+    env: { LINEAR_API_KEY: 'lin_api_segredo', LINEAR_TEAM_ID: 'time-do-env' },
+    opcoes: { teamId: 'time-da-config' },
+    exec: async (cmd, args) => {
+      chamadas.push({ cmd, args });
+      return {
+        stdout: `${JSON.stringify({ data: { issueCreate: { issue: { url: 'https://linear.app/x/issue/A-3' } } } })}\n200`,
+        stderr: '',
+        code: 0,
+      };
+    },
+  });
+  const iPayload = chamadas[0].args.indexOf('--data-binary');
+  const json = JSON.parse(await readFile(String(chamadas[0].args[iPayload + 1]).slice(1), 'utf8'));
+  assert.equal(json.variables.input.teamId, 'time-do-env');
+});
+
+test('linear sem teamId em lugar nenhum avisa e segue (Ajuste 3)', async () => {
+  let chamou = false;
+  const r = await abrirIssue('linear', achado, {
+    env: { LINEAR_API_KEY: 'lin_api_segredo' },
+    opcoes: {},
+    exec: async () => { chamou = true; return { stdout: '', stderr: '', code: 0 }; },
+  });
+  assert.equal(chamou, false);
+  assert.equal(r.aberta, false);
+  assert.match(r.motivo, /teamId|LINEAR_TEAM_ID/);
+});

@@ -72,7 +72,7 @@ function aviso(motivo) {
  * Abre a issue no rastreador configurado. Nunca lança: o pior caso é
  * `{ aberta: false, motivo }` — o achado já está gravado de qualquer forma.
  */
-export async function abrirIssue(tracker, finding, { env = process.env, exec = execPadrao, agente } = {}) {
+export async function abrirIssue(tracker, finding, { env = process.env, exec = execPadrao, agente, opcoes = {} } = {}) {
   const escolhido = TRACKERS.includes(tracker) ? tracker : 'none';
   if (escolhido === 'none') {
     return { aberta: false, tracker: 'none', motivo: 'tracker none' };
@@ -98,8 +98,15 @@ export async function abrirIssue(tracker, finding, { env = process.env, exec = e
     // linear
     const token = String(env.LINEAR_API_KEY ?? '').trim();
     if (!token) return { ...aviso('LINEAR_API_KEY ausente no ambiente'), tracker: 'linear' };
-    const time = String(env.LINEAR_TEAM_ID ?? '').trim();
-    if (!time) return { ...aviso('LINEAR_TEAM_ID ausente no ambiente'), tracker: 'linear' };
+    // Env VENCE a config: a config e versionada e vale para o repo inteiro; o env
+    // e de quem esta rodando. Token nunca vem da config, so daqui.
+    const time = String(env.LINEAR_TEAM_ID ?? opcoes.teamId ?? '').trim();
+    if (!time) {
+      return {
+        ...aviso('teamId do Linear ausente (LINEAR_TEAM_ID no env ou bugAgents.tracker.linear.teamId na config)'),
+        tracker: 'linear',
+      };
+    }
 
     const arquivoPayload = join(pasta, 'payload.json');
     await writeFile(

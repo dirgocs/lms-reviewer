@@ -2116,6 +2116,10 @@ function estadoDoDesfecho(resultado) {
 
 export async function runFallback(opcoes = {}) {
   const root = opcoes.root ?? process.cwd();
+  // O veredito e o desfecho DESTA rodada, nao um lock: apagar o da anterior faz
+  // "o arquivo existe" significar sempre "terminou agora", inclusive quando a
+  // cadeia morre antes de gravar o proprio.
+  await rm(join(root, '.lms', 'veredito.json'), { force: true });
   const contexto = {};
   let resultado;
   try {

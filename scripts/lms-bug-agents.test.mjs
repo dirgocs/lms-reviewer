@@ -8,6 +8,7 @@ import { promisify } from 'node:util';
 
 import {
   agenteCommitado,
+  agenteEmRascunho,
   carregarAgentes,
   contextoDoAgente,
   escolherAgente,
@@ -142,4 +143,26 @@ test('contextoDoAgente junta corpo, fontes de verdade e checklist (Task 1)', () 
   assert.match(ctx, /Como triar/);
   assert.match(ctx, /services\/fiscal\/AGENTS\.md/);
   assert.match(ctx, /cStat 656/);
+});
+
+// Ajuste 2 (ordem do Master): agente sem `verificar_antes_de_abrir_issue` nasce
+// `status: rascunho` e NAO roda. Commitado + preenchido = ativo. Agente sem a
+// chave `status` (todos os escritos a mao antes disto) segue ativo.
+test('agenteEmRascunho: so status rascunho explicito recusa (Ajuste 2)', () => {
+  assert.equal(agenteEmRascunho({ nome: 'a', status: 'rascunho' }), true);
+  assert.equal(agenteEmRascunho({ nome: 'a', status: 'ativo' }), false);
+  assert.equal(agenteEmRascunho({ nome: 'a' }), false, 'sem status = ativo (compat)');
+  assert.equal(agenteEmRascunho({ nome: 'a', status: 'RASCUNHO' }), true, 'case-insensitive');
+});
+
+test('parseFrontmatter le status e revisar (Ajuste 2)', () => {
+  const texto = [
+    '---', 'nome: workers', 'status: rascunho',
+    'match:', '  paths:', '    - "^workers/"',
+    'revisar:', '    - "match.sinal inferido do codigo"',
+    '---', '', 'corpo',
+  ].join('\n');
+  const { dados } = parseFrontmatter(texto);
+  assert.equal(dados.status, 'rascunho');
+  assert.deepEqual(dados.revisar, ['match.sinal inferido do codigo']);
 });

@@ -129,6 +129,19 @@ export async function carregarAgentes(root, dir = '.agents/bug-triage') {
 }
 
 /**
+ * Agente em RASCUNHO nao roda. O bootstrap escreve `status: rascunho` quando nao
+ * tem o que so o consumidor sabe (`verificar_antes_de_abrir_issue`): sem essa
+ * lista o agente orienta onde olhar sem dizer o que conferir, que e exatamente o
+ * jeito de produzir triagem confiante e errada.
+ *
+ * Ausencia de `status` e ATIVO: agente escrito a mao antes disto nao para de
+ * funcionar por causa de uma chave nova.
+ */
+export function agenteEmRascunho(agente) {
+  return String(agente?.status ?? '').trim().toLowerCase() === 'rascunho';
+}
+
+/**
  * Só agente COMMITADO roda. Untracked/modificado → recusa nomeada, com o estado.
  */
 export async function agenteCommitado(root, arquivo) {

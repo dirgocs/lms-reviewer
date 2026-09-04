@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile as execFileCallback } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -11,6 +11,7 @@ import {
   deveBootstrapar,
   proporAgentes,
   renderizarAgente,
+  sinaisDoCodigo,
   runBootstrap,
   varrerRepo,
 } from './lms-bug-bootstrap.mjs';
@@ -193,5 +194,97 @@ test('auto-init so com diretorio vazio ou ausente (Task 5)', async () => {
     false,
     'agente que nao casou NAO dispara bootstrap',
   );
+  await rm(root, { recursive: true, force: true });
+});
+
+// Ajuste 1 (ordem do Master): heuristica barata sobre os arquivos da superficie —
+// so o que o CODIGO JA NOMEIA (classe de excecao, codigo de erro literal,
+// mensagem de raise/throw). Nada de adivinhar dominio alem disso, e o que sai
+// vem marcado para revisao.
+async function repoComSinaisNoCodigo() {
+  const root = await mkdtemp(join(tmpdir(), 'lms-sinais-'));
+  await execFile('git', ['init', '-q'], { cwd: root });
+  await execFile('git', ['config', 'user.email', 'lms@test'], { cwd: root });
+  await execFile('git', ['config', 'user.name', 'lms'], { cwd: root });
+  await mkdir(join(root, 'services/workers'), { recursive: true });
+  await writeFile(
+    join(root, 'services/workers/emissao.py'),
+    [
+      'class TransmissaoError(Exception):',
+      '    pass',
+      '',
+      'def emitir(lote):',
+      '    if lote.status == "E0123":',
+      '        raise TransmissaoError("lote rejeitado pela transmissao")',
+      '    if lote.cStat == 656:',
+      '        raise TransmissaoError("bloqueio temporario")',
+      '',
+    ].join('\n'),
+  );
+  await execFile('git', ['add', '.'], { cwd: root });
+  await execFile('git', ['commit', '-qm', 'fix: ajusta emissao'], { cwd: root });
+  return root;
+}
+
+test('sinaisDoCodigo colhe excecao, codigo literal e mensagem de raise (Ajuste 1)', async () => {
+  const root = await repoComSinaisNoCodigo();
+  const sinais = await sinaisDoCodigo(root, 'services/workers');
+  assert.ok(sinais.includes('TransmissaoError'), 'classe de excecao que o codigo levanta');
+  assert.ok(sinais.some((s) => s.includes('E0123')), 'codigo de erro literal');
+  assert.ok(sinais.some((s) => /lote rejeitado/.test(s)), 'mensagem de raise');
+  // Nada inventado: so identificadores que existem no arquivo.
+  const fonte = await readFile(join(root, 'services/workers/emissao.py'), 'utf8');
+  for (const sinal of sinais) {
+    const literal = sinal.replace(/\\(.)/g, '$1');
+    assert.ok(fonte.includes(literal), `'${sinal}' precisa existir no codigo, nao ser adivinhado`);
+  }
+  // Toda entrada compila como regex — match.sinal e compilado por parseFrontmatter.
+  for (const sinal of sinais) assert.doesNotThrow(() => new RegExp(sinal));
+  await rm(root, { recursive: true, force: true });
+});
+
+test('proporAgentes usa os sinais do codigo e marca para revisar (Ajuste 1)', async () => {
+  const root = await repoComSinaisNoCodigo();
+  const propostas = await proporAgentes(await varrerRepo(root));
+  const proposta = propostas.find((p) => p.prefixo === 'services/workers');
+  assert.ok(proposta, 'a superficie com historia de fix vira proposta');
+  assert.ok(
+    proposta.match.sinal.some((s) => s.includes('TransmissaoError')),
+    'o sinal inferido entra no match',
+  );
+  assert.ok(
+    proposta.revisar.some((r) => /match\.sinal/.test(r)),
+    'o que foi inferido sai marcado para revisao',
+  );
+  await rm(root, { recursive: true, force: true });
+});
+
+test('agente proposto nasce em rascunho e o runner o recusa ate ser preenchido (Ajuste 1+2)', async () => {
+  const root = await repoComSinaisNoCodigo();
+  const resultado = await runBootstrap({ root, guided: false, yes: true });
+  assert.ok(resultado.escritos >= 1);
+
+  const agentes = await carregarAgentes(root, '.agents/bug-triage');
+  assert.ok(agentes.length >= 1);
+  for (const agente of agentes) {
+    assert.equal(agente.status, 'rascunho', 'sem checklist de dominio, nasce rascunho');
+    assert.ok(agente.revisar?.length, 'o que a heuristica inferiu fica declarado');
+  }
+  await rm(root, { recursive: true, force: true });
+});
+
+test('proposta com checklist preenchido sai ativa (Ajuste 1+2)', async () => {
+  const root = await repoComSinaisNoCodigo();
+  const [proposta] = await proporAgentes(await varrerRepo(root));
+  const texto = renderizarAgente({
+    ...proposta,
+    verificar_antes_de_abrir_issue: ['conferir o piso de retry antes de culpar a transmissao'],
+  });
+  const pasta = join(root, '.agents/bug-triage');
+  await mkdir(pasta, { recursive: true });
+  await writeFile(join(pasta, `${proposta.nome}.md`), texto, 'utf8');
+
+  const [agente] = await carregarAgentes(root, '.agents/bug-triage');
+  assert.equal(agente.status, 'ativo', 'checklist preenchido = ativo');
   await rm(root, { recursive: true, force: true });
 });

@@ -17,7 +17,7 @@
  * propósito: inventá-la seria embutir inteligência de domínio no gate.
  */
 import { execFile as execFileCallback } from 'node:child_process';
-import { mkdir, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -26,6 +26,74 @@ const execFile = promisify(execFileCallback);
 const TETO_AGENTES = 6;
 const IGNORADOS = new Set(['node_modules', 'dist', 'build', 'coverage', 'vendor', '__pycache__']);
 const ESCALAR_PADRAO = 'orchestrator';
+const EXT_DE_CODIGO = /\.(py|ts|tsx|js|mjs|go|rb|java|cs|php|rs|kt)$/;
+const TETO_SINAIS = 6;
+const TETO_ARQUIVOS_LIDOS = 40;
+const TETO_BYTES = 256 * 1024;
+
+/** Escapa para ERE literal: o sinal e compilado por parseFrontmatter. */
+function comoLiteral(texto) {
+  return String(texto).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Sinais que o CODIGO JA NOMEIA na superficie: classe de excecao levantada,
+ * codigo de erro literal (E0123 e parentes) e mensagem de `raise`/`throw`.
+ *
+ * O limite e deliberado: o pacote nao adivinha vocabulario de dominio, so colhe
+ * o que esta escrito. Tudo que sai daqui vai marcado em `revisar` — heuristica
+ * barata acerta o suficiente para dar ponto de partida, nunca para virar verdade.
+ */
+export async function sinaisDoCodigo(root, prefixo) {
+  const encontrados = new Map();
+  const guardar = (bruto) => {
+    const limpo = String(bruto ?? '').trim();
+    if (limpo.length < 4 || limpo.length > 60) return;
+    if (!encontrados.has(limpo)) encontrados.set(limpo, comoLiteral(limpo));
+  };
+
+  let lidos = 0;
+  async function varrer(dir, profundidade) {
+    if (lidos >= TETO_ARQUIVOS_LIDOS || profundidade > 2) return;
+    let entradas;
+    try {
+      entradas = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entrada of entradas) {
+      if (lidos >= TETO_ARQUIVOS_LIDOS) return;
+      if (entrada.name.startsWith('.') || IGNORADOS.has(entrada.name)) continue;
+      const caminho = join(dir, entrada.name);
+      if (entrada.isDirectory()) {
+        await varrer(caminho, profundidade + 1);
+        continue;
+      }
+      if (!entrada.isFile() || !EXT_DE_CODIGO.test(entrada.name)) continue;
+      let texto;
+      try {
+        texto = await readFile(caminho, 'utf8');
+      } catch {
+        continue;
+      }
+      lidos += 1;
+      if (texto.length > TETO_BYTES) continue;
+
+      // Classe de excecao: declarada, levantada ou lancada.
+      for (const m of texto.matchAll(/\bclass\s+([A-Z]\w*(?:Error|Exception|Fault))\b/g)) guardar(m[1]);
+      for (const m of texto.matchAll(/\b(?:raise|throw\s+new)\s+([A-Z]\w{3,40})\s*[(:]/g)) guardar(m[1]);
+      // Codigo de erro literal: E0123, ERR-404, HTTP502 e parentes.
+      for (const m of texto.matchAll(/\b([A-Z][A-Z0-9]{0,5}[-_]?\d{3,5})\b/g)) guardar(m[1]);
+      // Mensagem de raise/throw: o inicio basta para casar o texto no log.
+      for (const m of texto.matchAll(/\b(?:raise|throw\s+new)\s+\w+\s*\(\s*(?:f?["'\`])([^"'\`\n]{8,})/g)) {
+        guardar(m[1].slice(0, 40).trim());
+      }
+    }
+  }
+  await varrer(join(root, prefixo), 0);
+
+  return [...encontrados.values()].slice(0, TETO_SINAIS);
+}
 
 /** Escapa o prefixo para entrar como ERE literal no `match.paths` do agente. */
 function comoRegex(prefixo) {
@@ -52,6 +120,7 @@ export async function varrerRepo(root = process.cwd()) {
     superficies: new Map(), // prefixo -> Set de sinais estruturais ('rota', 'worker', …)
     gates: [],
     fixesPorDiretorio: new Map(),
+    sinaisPorSuperficie: new Map(),
   };
 
   const marcar = (relativo, tipo) => {
@@ -114,6 +183,17 @@ export async function varrerRepo(root = process.cwd()) {
     // Repo sem git (ou sem commits) só perde a pista da história — a topologia basta.
   }
 
+  // Sinais que o codigo ja nomeia, por superficie candidata. Fica aqui (e nao em
+  // proporAgentes) para a proposta seguir sendo funcao pura sobre a varredura.
+  const candidatas = new Set([
+    ...varredura.superficies.keys(),
+    ...varredura.fixesPorDiretorio.keys(),
+  ]);
+  for (const prefixo of candidatas) {
+    const sinais = await sinaisDoCodigo(root, prefixo);
+    if (sinais.length) varredura.sinaisPorSuperficie.set(prefixo, sinais);
+  }
+
   return varredura;
 }
 
@@ -136,15 +216,23 @@ export function proporAgentes(varredura) {
     if (propostas.length >= TETO_AGENTES || prefixosVistos.has(prefixo)) return;
     prefixosVistos.add(prefixo);
     const nome = nomeDaSuperficie(prefixo);
+    // O que o codigo ja nomeia vence o nome da pasta: `TransmissaoError` casa um
+    // stack trace, `workers` casa qualquer coisa. Mas e inferencia — sai marcado.
+    const doCodigo = varredura.sinaisPorSuperficie?.get(prefixo) ?? [];
+    const sinal = doCodigo.length
+      ? doCodigo
+      : [prefixo.split('/').at(-1)].filter(Boolean);
     propostas.push({
       nome,
       prefixo,
       descricao: `Sinais de runtime vindos de ${prefixo}`,
       motivo,
+      revisar: doCodigo.length
+        ? [`match.sinal inferido do codigo desta superficie (${doCodigo.length} padroes) — confirme antes de ativar`]
+        : [],
       match: {
         paths: [comoRegex(prefixo)],
-        // Sinal estrutural: o nome da superfície costuma aparecer no stack trace.
-        sinal: [prefixo.split('/').at(-1)].filter(Boolean),
+        sinal,
       },
       fontes_de_verdade: fontesPara(prefixo, varredura.instrucoes),
       // Verdade de domínio é do consumidor: fica em branco para ele preencher.
@@ -180,7 +268,16 @@ export function proporAgentes(varredura) {
 /** Texto do agente com o frontmatter do molde da spec §3.2. */
 export function renderizarAgente(proposta) {
   const lista = (itens) => itens.map((item) => `    - "${String(item).replace(/"/g, "'")}"`);
-  const linhas = ['---', `nome: ${proposta.nome}`, `descricao: ${proposta.descricao ?? proposta.nome}`];
+  // Sem a verdade de dominio o agente orienta ONDE olhar sem dizer O QUE conferir
+  // — e o jeito de produzir triagem confiante e errada. Nasce rascunho e o runner
+  // recusa ate ser preenchido (lms-bug-agents.mjs:agenteEmRascunho).
+  const status = (proposta.verificar_antes_de_abrir_issue ?? []).length ? 'ativo' : 'rascunho';
+  const linhas = [
+    '---',
+    `nome: ${proposta.nome}`,
+    `descricao: ${proposta.descricao ?? proposta.nome}`,
+    `status: ${status}`,
+  ];
 
   linhas.push('match:', '  paths:', ...lista(proposta.match.paths));
   if (proposta.match.sinal?.length) linhas.push('  sinal:', ...lista(proposta.match.sinal));
@@ -193,6 +290,7 @@ export function renderizarAgente(proposta) {
   if (proposta.verificar_antes_de_abrir_issue?.length) {
     linhas.push('verificar_antes_de_abrir_issue:', ...lista(proposta.verificar_antes_de_abrir_issue));
   }
+  if (proposta.revisar?.length) linhas.push('revisar:', ...lista(proposta.revisar));
   if (proposta.escalar_para) linhas.push(`escalar_para: ${proposta.escalar_para}`);
   linhas.push('---', '');
 
@@ -206,6 +304,17 @@ export function renderizarAgente(proposta) {
     'SEMPRE precisa ser conferido antes de abrir issue — é a verdade de domínio',
     'que o pacote não tem como inferir.',
     '',
+    ...(status === 'rascunho'
+      ? [
+          '> **Rascunho.** Este agente NÃO roda enquanto `status: rascunho`.',
+          '> Preencha `verificar_antes_de_abrir_issue`, troque `status` para `ativo`',
+          '> e commite — só agente commitado e preenchido tria.',
+          '',
+        ]
+      : []),
+    ...(proposta.revisar?.length
+      ? ['> Revise antes de ativar:', ...proposta.revisar.map((r) => `> - ${r}`), '']
+      : []),
   );
   return linhas.join('\n');
 }

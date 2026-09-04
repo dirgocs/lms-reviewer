@@ -55,9 +55,14 @@
 
   "$bugAgents": [
     "Fase 5: triagem de bug com agentes de domínio do repo. 'dir' é onde moram os",
-    "agentes .md (só os COMMITADOS rodam); 'tracker' é none|github|linear (como o",
-    "achado é registrado); 'guided: true' liga o bootstrap com perguntas (o padrão",
-    "é autônomo: propõe, confirma uma vez, e nada roda até você commitar os arquivos)."
+    "agentes .md (só os COMMITADOS e com 'status: ativo' rodam — agente gerado pelo",
+    "bootstrap nasce 'rascunho' até você preencher verificar_antes_de_abrir_issue);",
+    "'guided: true' liga o bootstrap com perguntas (o padrão é autônomo: propõe,",
+    "confirma uma vez, e nada roda até você commitar os arquivos).",
+    "'tracker' é none|github|linear e aceita duas formas: a string do nome, ou o",
+    "objeto com as opções daquele tracker — { \"linear\": { \"teamId\": \"...\" } }.",
+    "TOKEN NUNCA ENTRA AQUI: LINEAR_API_KEY só em env, porque esta config é",
+    "versionada. LINEAR_TEAM_ID em env VENCE o teamId declarado aqui."
   ],
   "bugAgents": { "dir": ".agents/bug-triage", "tracker": "none", "guided": false }
 }
