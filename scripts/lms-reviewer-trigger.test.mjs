@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn, execFile as execFileCallback } from 'node:child_process';
@@ -176,6 +176,60 @@ test('preserves explicit bypass variables', async () => {
       extraEnv: { LMS_SKIP: '1', LMS_TEST_RUNNER_MODE: 'fail' },
     });
     assert.equal(result.code, 0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// Task 10 da Fase 5 (evidencia KDT-68): quem espera a cadeia precisa de UMA linha
+// estavel para esperar. `LMS VEREDITO: <estado>` e sempre a ultima linha do stderr.
+function ultimaLinha(texto) {
+  return String(texto).trimEnd().split('\n').at(-1);
+}
+
+test('scorecard OK imprime LMS VEREDITO: accepted como ultima linha e sai 0 (Task 10)', async () => {
+  const { root, runner } = await fixture({
+    reviewer: 'grok', score: 5, target: 5, base: 'HEAD~1', p0: 0, p1: 0, p2: 0,
+    lenses: {
+      'code-safety': { p0: 0, p1: 0, p2: 0 },
+      'code-structure': { p0: 0, p1: 0, p2: 0 },
+      'code-quality': { p0: 0, p1: 0, p2: 0 },
+      'code-efficiency': { p0: 0, p1: 0, p2: 0 },
+    }, at: new Date().toISOString(), autonomy: 'reviewer', fallow: 'pass', coverage: [{ surface: 'arquivos alterados', total: 3, inspected: 3 }], verified: [{ claim: 'o modulo exporta a constante citada', path: 'a.ts', line: 1, quote: 'export const citado = 42; // linha citada verbatim' }],
+    inspected: [{ path: 'a.ts', line: 1, quote: 'export const citado = 42; // linha citada verbatim' }],
+  });
+  try {
+    const r = await runTrigger({ root, runner, extraEnv: { LMS_TEST_RUNNER_MODE: 'fail' } });
+    assert.equal(r.code, 0);
+    assert.equal(ultimaLinha(r.stderr), 'LMS VEREDITO: accepted');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('cadeia que morre sem gravar veredito sai 1 com estado timeout (Task 10)', async () => {
+  const { root, runner } = await fixture({ reviewer: 'grok', score: 2 });
+  try {
+    const r = await runTrigger({ root, runner, extraEnv: { LMS_TEST_RUNNER_MODE: 'fail' } });
+    assert.equal(r.code, 1);
+    assert.equal(ultimaLinha(r.stderr), 'LMS VEREDITO: timeout', 'fail-closed: sem veredito gravado, timeout');
+    const veredito = JSON.parse(await readFile(join(root, '.lms', 'veredito.json'), 'utf8'));
+    assert.equal(veredito.estado, 'timeout', 'o trigger grava o que faltou');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('veredito gravado pelo runner e o que o trigger propaga (Task 10)', async () => {
+  const { root, runner } = await fixture({ reviewer: 'grok', score: 2 });
+  try {
+    await writeFile(
+      join(root, '.lms', 'veredito.json'),
+      JSON.stringify({ estado: 'refuted', reviewer: 'claude', refutador: 'grok' }),
+    );
+    const r = await runTrigger({ root, runner, extraEnv: { LMS_TEST_RUNNER_MODE: 'fail' } });
+    assert.equal(r.code, 1);
+    assert.equal(ultimaLinha(r.stderr), 'LMS VEREDITO: refuted');
   } finally {
     await rm(root, { recursive: true, force: true });
   }

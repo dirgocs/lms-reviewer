@@ -12,6 +12,7 @@ import {
   reportarDesfecho,
   retryPrompt,
   runFallback,
+  registrarVeredito,
   verificarProva,
 } from './lms-reviewer-fallback.mjs';
 import { findingId } from './lms-scorecard.mjs';
@@ -1734,4 +1735,89 @@ test('classe recorrente injeta achado estrutural e rejeita a rodada (Task 6)', a
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+// Task 10 da Fase 5 (evidencia KDT-68): duas lanes ficaram HORAS paradas
+// "aguardando veredito" depois de a cadeia ja ter fechado — quem esperava nao
+// tinha como saber que terminou, nem com qual desfecho. Agora TODO desfecho grava
+// .lms/veredito.json.
+async function lerVeredito(root) {
+  return JSON.parse(await readFile(join(root, '.lms', 'veredito.json'), 'utf8'));
+}
+
+test('cadeia aceita grava veredito accepted com reviewer, refutador e subject (Task 10)', async () => {
+  const { root, env, scorecardValido } = await fixture();
+  const collect = async ({ provider, prompt }) => {
+    if (prompt.includes('DEMOLISH')) {
+      return { kind: 'ok', candidate: { id: 'abc123', verdict: 'CONFIRMED', why: 'confere' } };
+    }
+    if (provider === 'claude') return { kind: 'ok', candidate: scorecardValido };
+    return { kind: 'ok', candidate: { refuted: false, confidence: 0, inspected: provaDeLeituraFixture } };
+  };
+  const r = await runFallback({ root, base, env, collect });
+  assert.equal(r.ok, true);
+
+  const veredito = await lerVeredito(root);
+  assert.equal(veredito.estado, 'accepted');
+  assert.equal(veredito.reviewer, 'claude');
+  assert.equal(veredito.refutador, 'grok');
+  // O fixture nao tem branch/commit nomeado, entao o subject sai vazio — o que
+  // importa e o campo existir e vir da rodada, nao ser inventado.
+  assert.equal(typeof veredito.subject, 'string', 'o subject diz de QUE rodada e este veredito');
+  assert.ok(veredito.at, 'veredito carimbado');
+  assert.equal(typeof veredito.score, 'number');
+});
+
+test('rodada derrubada pelo contraditorio grava refuted (Task 10)', async () => {
+  const { root, env, scorecardValido } = await fixture();
+  const collect = async ({ provider, prompt }) => {
+    if (prompt.includes('DEMOLISH')) {
+      return { kind: 'ok', candidate: { id: 'abc123', verdict: 'CONFIRMED', why: 'confere' } };
+    }
+    if (provider === 'claude') return { kind: 'ok', candidate: scorecardValido };
+    return {
+      kind: 'ok',
+      candidate: {
+        refuted: true, confidence: 90, severity: 'P1', path: 'a.ts:1',
+        why: 'a query nao escopa por tenant e o teste nao cobre',
+        title: 'falta filtro de tenant', inspected: provaDeLeituraFixture,
+      },
+    };
+  };
+  const r = await runFallback({ root, base, env, collect });
+  assert.equal(r.ok, false);
+
+  const veredito = await lerVeredito(root);
+  assert.equal(veredito.estado, 'refuted');
+  assert.equal(veredito.refutador, 'grok');
+});
+
+test('cadeia que so deu timeout grava timeout, nao accepted (Task 10)', async () => {
+  const { root, env } = await fixture();
+  const r = await runFallback({ root, base, env, collect: async () => ({ kind: 'timeout' }) });
+  assert.equal(r.ok, false);
+
+  const veredito = await lerVeredito(root);
+  assert.equal(veredito.estado, 'timeout', 'quem espera precisa saber que ninguem julgou');
+  assert.equal(veredito.reviewer, null);
+});
+
+test('saida invalida do revisor grava invalid-output (Task 10)', async () => {
+  const { root, env } = await fixture();
+  const r = await runFallback({
+    root, base, env,
+    collect: async () => ({ kind: 'ok', candidate: { isto: 'nao e scorecard' } }),
+  });
+  assert.equal(r.ok, false);
+
+  const veredito = await lerVeredito(root);
+  assert.equal(veredito.estado, 'invalid-output');
+});
+
+test('registrarVeredito falha fechada: estado desconhecido nunca vira accepted (Task 10)', async () => {
+  const { root } = await fixture();
+  await registrarVeredito(root, { estado: 'inventado', reviewer: 'x' });
+  const veredito = await lerVeredito(root);
+  assert.notEqual(veredito.estado, 'accepted');
+  assert.equal(veredito.estado, 'invalid-output', 'estado fora da allowlist cai no mais fraco');
 });

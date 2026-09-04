@@ -614,6 +614,24 @@ no stderr). Falha de ferramenta (comando ausente, timeout) avisa e segue — err
 infra nunca decide sozinho. Timeout em GRUPO (`LMS_TEST_TIMEOUT_MS`, default 10 min);
 `LMS_TEST_GATE=0` desliga.
 
+## Esperar o veredito (`.lms/veredito.json`)
+
+Toda cadeia grava `.lms/veredito.json` no fim de QUALQUER desfecho, e o
+`lms-trigger` imprime `LMS VEREDITO: <estado>` como a ÚLTIMA linha do stderr.
+Estados: `accepted`, `refuted`, `rejected`, `timeout`, `invalid-output` — exit 0
+só em `accepted`.
+
+Quem espera a cadeia espera o arquivo, nunca a ausência de saída:
+
+```bash
+until [ -f .lms/veredito.json ]; do sleep 10; done
+estado=$(sed -n 's/.*"estado"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' .lms/veredito.json | head -1)
+```
+
+Cadeia que morre sem gravar tem o veredito gravado pelo trigger como `timeout`:
+ausência de resposta nunca vira aceite por omissão. Apague o arquivo antes de uma
+rodada nova — ele é o desfecho da última, não um lock.
+
 ## Quick invoke
 
 User phrases that should trigger this skill:

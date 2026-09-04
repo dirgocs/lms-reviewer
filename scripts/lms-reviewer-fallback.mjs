@@ -2071,7 +2071,77 @@ function instalarSaidaComPurga() {
   }
 }
 
-export async function runFallback({
+/**
+ * Estados possiveis de uma cadeia. Fechada de proposito: estado desconhecido cai
+ * em 'invalid-output', o mais fraco — nunca em 'accepted'.
+ */
+export const ESTADOS_VEREDITO = ['accepted', 'refuted', 'rejected', 'timeout', 'invalid-output'];
+
+/**
+ * Task 10 (evidencia KDT-68): grava `.lms/veredito.json` ao fim de QUALQUER
+ * desfecho. Duas lanes ficaram HORAS paradas "aguardando veredito" depois de a
+ * cadeia ja ter fechado: quem espera nao tinha como saber que terminou, nem com
+ * qual desfecho. Agora tem arquivo para esperar (`until [ -f .lms/veredito.json ]`).
+ */
+export async function registrarVeredito(root, { estado, score, reviewer, refutador, subject } = {}) {
+  const seguro = ESTADOS_VEREDITO.includes(estado) ? estado : 'invalid-output';
+  const registro = {
+    estado: seguro,
+    score: typeof score === 'number' ? score : null,
+    reviewer: reviewer ?? null,
+    refutador: refutador ?? null,
+    subject: subject ?? null,
+    at: new Date().toISOString(),
+  };
+  await mkdir(join(root, '.lms'), { recursive: true });
+  await writeFile(join(root, '.lms', 'veredito.json'), `${JSON.stringify(registro, null, 2)}\n`, 'utf8');
+  return registro;
+}
+
+/**
+ * Le o desfecho da cadeia como estado. `ok` e aceite; derrubada pelo contraditorio
+ * e refuted; reprovacao do revisor e rejected; cadeia que nao produziu veredito
+ * nenhum vira timeout ou invalid-output conforme a tentativa — nunca aceite.
+ */
+function estadoDoDesfecho(resultado) {
+  if (resultado?.ok) return 'accepted';
+  if (resultado?.contestedBy || /contraditorio derrubou/.test(resultado?.reason ?? '')) return 'refuted';
+  const resultados = (resultado?.attempts ?? []).map((a) => a?.result);
+  if (resultados.includes('rejected')) return 'rejected';
+  if (resultados.includes('invalid-output')) return 'invalid-output';
+  if (resultados.some((r) => ['timeout', 'missing-cli', 'error', 'exit'].includes(r))) return 'timeout';
+  // Sem segunda opiniao, ou cadeia esgotada sem nenhum julgamento: nao e aceite.
+  return 'invalid-output';
+}
+
+export async function runFallback(opcoes = {}) {
+  const root = opcoes.root ?? process.cwd();
+  const contexto = {};
+  let resultado;
+  try {
+    resultado = await executarFallback(opcoes, contexto);
+  } catch (erro) {
+    // Cadeia que morre no meio tambem precisa de veredito: quem espera o arquivo
+    // nao pode ficar pendurado porque o runner explodiu.
+    await registrarVeredito(root, {
+      estado: 'invalid-output',
+      subject: contexto.subject,
+      reviewer: null,
+      refutador: null,
+    });
+    throw erro;
+  }
+  await registrarVeredito(root, {
+    estado: estadoDoDesfecho(resultado),
+    score: contexto.score,
+    reviewer: resultado?.acceptedBy ?? null,
+    refutador: resultado?.contestedBy ?? resultado?.rejectedBy ?? null,
+    subject: contexto.subject,
+  });
+  return resultado;
+}
+
+async function executarFallback({
   root = process.cwd(),
   base,
   env = process.env,
@@ -2080,7 +2150,7 @@ export async function runFallback({
   // Coleta por arquivo (tmux) precisa dizer ao revisor ONDE gravar; a headless lê o
   // stdout e não tem destino. Uma função por provider mantém as duas no mesmo caminho.
   outputPathFor = () => '',
-} = {}) {
+} = {}, contexto = {}) {
   instalarSaidaComPurga();
   const resolvedBase = base ?? (await resolveBase(root));
   const {
@@ -2095,6 +2165,7 @@ export async function runFallback({
   const precedentes = await lerPrecedentes(root);
   const fallow = await fallowVerdict(root);
   const subject = await reviewSubject(root, resolvedBase);
+  contexto.subject = subject;
   const round = {
     round_id: randomUUID(),
     subject,
@@ -2175,6 +2246,7 @@ export async function runFallback({
         origemCommit,
         collectShadow,
       });
+      contexto.score = verificado?.score;
       return resolverAceite({
         root, env, provider, attempt: { ...attempt, scorecard: verificado },
         attempts, contraditorio,

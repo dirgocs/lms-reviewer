@@ -100,9 +100,39 @@ scorecard_ok() {
     >/dev/null 2>&1
 }
 
+# Task 10 da Fase 5 (evidencia KDT-68): quem espera a cadeia precisa de UMA linha
+# estavel, sempre a ultima do stderr, e de um arquivo para esperar. Duas lanes
+# ficaram HORAS paradas "aguardando veredito" com a cadeia ja fechada.
+VEREDITO_FILE="$ROOT/.lms/veredito.json"
+
+veredito_estado() {
+  [ -f "$VEREDITO_FILE" ] || return 1
+  sed -n 's/.*"estado"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$VEREDITO_FILE" | head -1
+}
+
+# Sai nomeando o estado. Sem veredito gravado o estado e `timeout` — fail-closed:
+# cadeia que morre sem gravar nao vira aceite por omissao.
+finalizar() {
+  estado="${1:-}"
+  if [ -z "$estado" ]; then
+    estado="$(veredito_estado)" || estado=""
+  fi
+  [ -n "$estado" ] || estado="timeout"
+
+  if [ ! -f "$VEREDITO_FILE" ]; then
+    mkdir -p "$ROOT/.lms"
+    printf '{\n  "estado": "%s",\n  "score": null,\n  "reviewer": null,\n  "refutador": null,\n  "subject": null,\n  "at": "%s"\n}\n' \
+      "$estado" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$VEREDITO_FILE"
+  fi
+
+  echo "LMS VEREDITO: $estado" >&2
+  if [ "$estado" = "accepted" ]; then exit 0; fi
+  exit 1
+}
+
 if scorecard_ok; then
   echo "lms-trigger: scorecard OK"
-  exit 0
+  finalizar accepted
 fi
 
 if [ -f "$RUNNER" ]; then
@@ -110,7 +140,7 @@ if [ -f "$RUNNER" ]; then
   if node "$RUNNER"; then
     if scorecard_ok; then
       echo "lms-trigger: scorecard accepted"
-      exit 0
+      finalizar accepted
     fi
     echo "lms-trigger: reviewer returned without a valid scorecard" >&2
   else
@@ -123,7 +153,7 @@ if [ -f "$RUNNER" ]; then
     echo "  Se um reviewer REPROVOU: leia .lms/last.json e trate os achados." >&2
     echo "  Se todos FALHARAM: veja .lms/fallback.log e rode 'pnpm lms:reviewer'." >&2
     echo "  Bypass consciente e sob sua responsabilidade: LMS_SKIP=1 git push …" >&2
-    exit 1
+    finalizar
   fi
 else
   echo "lms-trigger: fallback runner missing at $RUNNER" >&2
@@ -131,4 +161,4 @@ fi
 
 echo "lms-trigger: LMS scorecard missing/stale/below required score 5."
 echo "  Run pnpm lms:reviewer (tmux session: $SESSION), ensure .lms/last.json, then retry push."
-exit 1
+finalizar
