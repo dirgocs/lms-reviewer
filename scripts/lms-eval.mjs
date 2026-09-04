@@ -21,7 +21,14 @@ import { promisify } from 'node:util';
 import { collectHeadless, providerConfig, reviewPrompt } from './lms-reviewer-fallback.mjs';
 import { carregarAgentes, escolherAgente } from './lms-bug-agents.mjs';
 import { loadConfig } from './lms-config.mjs';
-import { caminhosDoSinal, normalizarSinal, parseTriagem, triagemPrompt } from './lms-triage-bug.mjs';
+import {
+  achadoDoSinal,
+  caminhosDoSinal,
+  conferirPathNoDisco,
+  normalizarSinal,
+  parseTriagem,
+  triagemPrompt,
+} from './lms-triage-bug.mjs';
 
 const execFile = promisify(execFileCallback);
 
@@ -161,9 +168,32 @@ export async function runEvalBugs({ dir, root = process.cwd(), env = process.env
       prompt: triagemPrompt(sinal, agente, []),
       parse: parseTriagem,
     }).catch(() => ({ kind: 'error' }));
-    const achado = saida.kind === 'ok' ? (saida.candidate ?? null) : null;
+    const relato = saida.kind === 'ok' ? (saida.candidate ?? null) : null;
 
-    porCaso.push({ slug: caso.slug, ...compararTriagem(caso.esperado, { agente: agente?.nome ?? null, achado }) });
+    // P2-4 da revisao da Fase 5: a regua tem de medir o pipeline de PRODUCAO. O
+    // eval comparava a saida crua do modelo, pulando `achadoDoSinal` — onde moram
+    // a exigencia de `:linha` e a conferencia de disco —, entao contava como
+    // acerto de localizacao um path que a triagem real teria recusado.
+    let achado = null;
+    let recusado = false;
+    if (relato) {
+      try {
+        achado = achadoDoSinal(relato, sinal, agente, provider);
+        if (await conferirPathNoDisco(achado, root)) {
+          achado = null;
+          recusado = true;
+        }
+      } catch {
+        // Recusa e resultado, nao erro do eval: o caso simplesmente nao acertou.
+        recusado = true;
+      }
+    }
+
+    porCaso.push({
+      slug: caso.slug,
+      recusado,
+      ...compararTriagem(caso.esperado, { agente: agente?.nome ?? null, achado }),
+    });
   }
 
   const soma = (chave) => porCaso.reduce((s, c) => s + c[chave], 0);

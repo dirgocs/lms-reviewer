@@ -13,7 +13,7 @@
  */
 import { createHash } from 'node:crypto';
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 
 import { citationShapeError, citationsDiskError } from './lms-inspection.mjs';
@@ -79,6 +79,10 @@ export async function caminhosDoSinal(texto, root = process.cwd()) {
     const caminho = m[1].replace(/^\.\//, '');
     const linha = Number(m[2]);
     const absoluto = resolve(root, caminho);
+    // P3-3: a classe de caracteres aceita `..`, entao `../../outro-repo/x.py:10`
+    // passava no access() e entrava como "caminho conferido no disco" — fora da
+    // raiz, no prompt, como se fosse deste projeto.
+    if (absoluto !== root && !absoluto.startsWith(root + sep)) continue;
     try {
       await access(absoluto);
       if (!encontrados.has(caminho)) encontrados.add(caminho);
@@ -223,6 +227,37 @@ async function lerStdin() {
   return texto;
 }
 
+/**
+ * Confere no DISCO o `path` do achado: arquivo sob a raiz e linha que existe de
+ * verdade (spec §3.1, "linha inexistente é recusada antes de sair").
+ *
+ * `citationsDiskError` nao serve aqui: ela exige que a QUOTE case o arquivo
+ * naquela linha, e a quote da triagem vem do log de runtime, nao do codigo — o
+ * texto do stack trace nunca vai bater com a linha do fonte. O que da para exigir
+ * honestamente e o que importa: o arquivo existe, esta dentro da raiz, e tem
+ * aquela linha.
+ */
+export async function conferirPathNoDisco(achado, root = process.cwd()) {
+  const [caminho, linhaBruta] = String(achado?.path ?? '').split(':');
+  const linha = Number(linhaBruta);
+  const alvo = resolve(root, caminho.trim());
+  // P3-3: `..` no caminho citado saia da raiz e ainda passava como "conferido".
+  if (alvo !== root && !alvo.startsWith(root + sep)) {
+    return `path fora da raiz do projeto: ${achado?.path}`;
+  }
+  let texto;
+  try {
+    texto = await readFile(alvo, 'utf8');
+  } catch {
+    return `path não existe no disco: ${achado?.path}`;
+  }
+  const totalDeLinhas = texto.split('\n').length;
+  if (!Number.isInteger(linha) || linha < 1 || linha > totalDeLinhas) {
+    return `linha ${linhaBruta} não existe em ${caminho} (${totalDeLinhas} linhas)`;
+  }
+  return null;
+}
+
 // Task 4 da Fase 5: wiring — o achado da triagem passa SEMPRE pelo verificador da
 // Fase 2. LMS_VERIFY=0 recusa a triagem inteira (exit 1): abrir issue sem
 // contraditório é o buraco. Nenhum veredito novo: CONFIRMED = verificado,
@@ -337,6 +372,12 @@ export async function runTriageBug({
   }
 
   const achado = achadoDoSinal(relato, sinalBase, agente, provider);
+  const erroDeDisco = await conferirPathNoDisco(achado, root);
+  if (erroDeDisco) {
+    const motivo = `triagem recusada: ${erroDeDisco}`;
+    console.error(`lms-triage-bug: recusada — ${motivo}`);
+    return { exitCode: 1, motivo, abertos: [], fechados: [] };
+  }
 
   // Verificador adversarial da Fase 2: ordena, respeita MAX_VERIFICACOES e chama
   // aplicarVeredito. CONFIRMED = verificado; PLAUSIBLE = backlog (nunca some).

@@ -131,11 +131,11 @@ test('runTriageBug: sinal vira achado verificado e gravado (Task 4)', async () =
     }
     return {
       kind: 'ok',
-      candidate: { path: 'a.py:2', lens: 'code-safety', title: 'quebra no worker', why: 'o stack cita a.py:2', fix: 'corrigir o loop' },
+      candidate: { path: 'workers/x.py:2', lens: 'code-safety', title: 'quebra no worker', why: 'o stack cita workers/x.py:2', fix: 'corrigir o loop' },
     };
   };
   const r = await runTriageBug({ root, env: {}, collect, argv: [join(root, 'sinal.log')] });
-  assert.equal(r.achado.path, 'a.py:2');
+  assert.equal(r.achado.path, 'workers/x.py:2');
   assert.equal(r.outcome, 'backlog', 'PLAUSIBLE vira backlog e nao some');
   assert.equal(r.verificador, true, 'passou pelo verificador');
   const gravado = JSON.parse(await readFile(join(root, '.lms', `bug-${r.achado.id}.json`), 'utf8'));
@@ -429,5 +429,68 @@ test('agente commitado e preenchido roda normalmente (Ajuste 2)', async () => {
   const r = await runTriageBug({ root, env: {}, collect: collectConfirmado, argv: [join(root, 'sinal.log')] });
   assert.equal(r.exitCode, 0);
   assert.equal(r.outcome, 'verificado');
+  await rm(root, { recursive: true, force: true });
+});
+
+// P2-4 (irmao) da revisao da Fase 5: a spec §3.1 promete "linha inexistente e
+// recusada antes de sair", mas nada conferia a linha no disco — `citationsDiskError`
+// exige que a QUOTE case o arquivo, e a quote da triagem vem do log, nunca do
+// codigo. O achado inventado passava e virava issue.
+test('path inventado pelo modelo e recusado antes de virar achado (P2-4)', async () => {
+  const root = await repoComSinal();
+  const r = await runTriageBug({
+    root, env: {},
+    collect: async () => ({
+      kind: 'ok',
+      candidate: { path: 'servico/inexistente.py:12', lens: 'code-safety', title: 't', why: 'inventado' },
+    }),
+    argv: [join(root, 'sinal.log')],
+  });
+  assert.equal(r.exitCode, 1);
+  assert.match(r.motivo, /não existe no disco/);
+  await rm(root, { recursive: true, force: true });
+});
+
+test('linha alem do fim do arquivo e recusada (P2-4)', async () => {
+  const root = await repoComSinal();
+  const r = await runTriageBug({
+    root, env: {},
+    collect: async () => ({
+      kind: 'ok',
+      candidate: { path: 'workers/x.py:999', lens: 'code-safety', title: 't', why: 'linha que nao existe' },
+    }),
+    argv: [join(root, 'sinal.log')],
+  });
+  assert.equal(r.exitCode, 1);
+  assert.match(r.motivo, /linha 999 não existe/);
+  await rm(root, { recursive: true, force: true });
+});
+
+// P3-3 da revisao da Fase 5: `..` no caminho citado saia da raiz e ainda entrava
+// como "conferido no disco".
+test('path com .. fora da raiz e recusado (P3-3)', async () => {
+  const root = await repoComSinal();
+  const r = await runTriageBug({
+    root, env: {},
+    collect: async () => ({
+      kind: 'ok',
+      candidate: { path: '../outro-repo/x.py:1', lens: 'code-safety', title: 't', why: 'fora da raiz' },
+    }),
+    argv: [join(root, 'sinal.log')],
+  });
+  assert.equal(r.exitCode, 1);
+  assert.match(r.motivo, /fora da raiz/);
+  await rm(root, { recursive: true, force: true });
+});
+
+test('caminhosDoSinal ignora caminho que sai da raiz (P3-3)', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'lms-raiz-'));
+  await mkdir(join(root, 'app'), { recursive: true });
+  await writeFile(join(root, 'app', 'ok.py'), 'linha1\n');
+  const caminhos = await caminhosDoSinal(
+    'erro em app/ok.py:1 e em ../../etc/passwd.py:1\n',
+    root,
+  );
+  assert.deepEqual(caminhos, ['app/ok.py'], 'so o que esta sob a raiz e conferido');
   await rm(root, { recursive: true, force: true });
 });

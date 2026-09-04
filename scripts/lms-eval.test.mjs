@@ -210,3 +210,72 @@ test('runEvalBugs tria cada sinal contra os agentes do repo sob teste (Task 8)',
   assert.equal(resultado.path, 1, 'a localizacao bate');
   assert.equal(resultado.por_caso[0].slug, 'worker-sem-teto');
 });
+
+// P2-4 da revisao da Fase 5: o eval comparava `achado.path` da saida CRUA do
+// modelo, pulando `achadoDoSinal` — onde moram a exigencia de `:linha` e a
+// conferencia de disco. A metrica contava como acerto um path que a triagem real
+// teria RECUSADO: a regua media um pipeline que nao e o de producao.
+async function repoDeBugs() {
+  const root = await mkdtemp(join(tmpdir(), 'lms-eval-p24-'));
+  await mkdir(join(root, 'workers'), { recursive: true });
+  await writeFile(join(root, 'workers', 'x.py'), 'linha1\nlinha2\n');
+  await mkdir(join(root, '.agents/bug-triage'), { recursive: true });
+  await writeFile(
+    join(root, '.agents/bug-triage', 'workers.md'),
+    '---\nnome: workers\ndescricao: workers\nmatch:\n  paths:\n    - "^workers/"\n---\n\nTriar workers.\n',
+  );
+  const corpus = await mkdtemp(join(tmpdir(), 'lms-eval-p24-corpus-'));
+  await mkdir(join(corpus, 'bugs', 'caso'), { recursive: true });
+  await writeFile(join(corpus, 'bugs', 'caso', 'sinal.txt'), 'HTTP 500 em workers/x.py:2\n');
+  await writeFile(
+    join(corpus, 'bugs', 'caso', 'esperado.json'),
+    JSON.stringify({ agente: 'workers', path: 'workers/x.py', lens: 'code-safety', severity: 'P1', nao_deve: [] }),
+  );
+  return { root, corpus };
+}
+
+test('path SEM linha nao conta como acerto: a triagem real recusaria (P2-4)', async () => {
+  const { root, corpus } = await repoDeBugs();
+  const resultado = await runEvalBugs({
+    dir: corpus,
+    root,
+    env: {},
+    // Sem `:linha` — `achadoDoSinal` lanca, entao nao existe achado nenhum.
+    collect: async () => ({
+      kind: 'ok',
+      candidate: { path: 'workers/x.py', lens: 'code-safety', title: 't', why: 'o stack cita workers/x.py' },
+    }),
+  });
+  assert.equal(resultado.match, 1, 'o match de agente independe do achado');
+  assert.equal(resultado.path, 0, 'path que a triagem recusaria nao pode contar como acerto');
+  assert.equal(resultado.por_caso[0].recusado, true, 'o caso fica marcado como recusado');
+});
+
+test('path com linha inexistente no disco nao conta como acerto (P2-4)', async () => {
+  const { root, corpus } = await repoDeBugs();
+  const resultado = await runEvalBugs({
+    dir: corpus,
+    root,
+    env: {},
+    collect: async () => ({
+      kind: 'ok',
+      candidate: { path: 'workers/x.py:999', lens: 'code-safety', title: 't', why: 'o stack cita workers/x.py:999' },
+    }),
+  });
+  assert.equal(resultado.path, 0, 'linha inexistente e recusada pela conferencia de disco');
+});
+
+test('achado que a triagem real aceita continua contando (P2-4)', async () => {
+  const { root, corpus } = await repoDeBugs();
+  const resultado = await runEvalBugs({
+    dir: corpus,
+    root,
+    env: {},
+    collect: async () => ({
+      kind: 'ok',
+      candidate: { path: 'workers/x.py:2', lens: 'code-safety', title: 't', why: 'o stack cita workers/x.py:2' },
+    }),
+  });
+  assert.equal(resultado.path, 1);
+  assert.equal(resultado.por_caso[0].recusado, false);
+});
