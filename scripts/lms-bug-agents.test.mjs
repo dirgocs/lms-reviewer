@@ -166,3 +166,29 @@ test('parseFrontmatter le status e revisar (Ajuste 2)', () => {
   assert.equal(dados.status, 'rascunho');
   assert.deepEqual(dados.revisar, ['match.sinal inferido do codigo']);
 });
+
+// P2-1 da revisao da Fase 5: `new RegExp('')` compila e casa QUALQUER string. Uma
+// entrada vazia em match.sinal/paths — trivial em YAML (`- ""`) — dava +2/+3 em
+// todo sinal, e o agente coringa vencia qualquer agente especifico.
+test('padrao vazio no match descarta o agente, nao vira coringa (P2-1)', () => {
+  const comSinalVazio = [
+    '---', 'nome: coringa', 'match:', '  sinal:', '    - ""', '---', '', 'corpo',
+  ].join('\n');
+  assert.equal(parseFrontmatter(comSinalVazio), null, 'sinal vazio descarta o agente');
+
+  const comPathVazio = [
+    '---', 'nome: coringa', 'match:', '  paths:', '    - "   "', '---', '', 'corpo',
+  ].join('\n');
+  assert.equal(parseFrontmatter(comPathVazio), null, 'path so com espaco tambem');
+});
+
+test('agente coringa nao vence agente especifico (P2-1)', () => {
+  const especifico = {
+    nome: 'workers',
+    match: { paths: [/^workers\//], sinal: [/TransmissaoError/] },
+  };
+  // O coringa so existiria se o padrao vazio passasse; com a recusa ele nem carrega.
+  // Aqui provamos o efeito que a recusa evita: escore de padrao vazio seria total.
+  const sinal = { texto: 'nada a ver com este agente', caminhos_citados: [], tags: [] };
+  assert.equal(escolherAgente([especifico], sinal), null, 'sem match real, ninguem casa');
+});

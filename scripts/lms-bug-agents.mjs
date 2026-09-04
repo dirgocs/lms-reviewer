@@ -26,7 +26,15 @@ function listaDeRegex(valor, chave) {
   if (!Array.isArray(valor) || !valor.every((item) => typeof item === 'string')) {
     throw new TypeError(`${chave} precisa ser array de strings`);
   }
-  return valor.map((padrao) => new RegExp(padrao));
+  return valor.map((padrao) => {
+    // P2-1 da revisao da Fase 5: `new RegExp('')` compila e casa QUALQUER string.
+    // Uma entrada vazia (trivial em YAML: `- ""`, ou um `- ` orfao) daria escore
+    // em todo sinal, e o agente coringa venceria qualquer agente especifico —
+    // entregando contexto de dominio errado ao prompt e `escalar_para` errado a
+    // rota. Padrao vazio e defeito de escrita, nao curinga.
+    if (!padrao.trim()) throw new TypeError(`${chave} tem padrao vazio (casaria tudo)`);
+    return new RegExp(padrao);
+  });
 }
 
 /**

@@ -48,10 +48,14 @@ test('none: nao chama binario nenhum, o achado fica em .lms (Task 6)', async () 
 
 test('github monta gh issue create com body por arquivo (Task 6)', async () => {
   const chamadas = [];
+  let corpoGravado = '';
   const r = await abrirIssue('github', achado, {
     env: {},
     exec: async (cmd, args) => {
       chamadas.push({ cmd, args });
+      // Lido DURANTE a chamada: o temporario e removido no finally (P2-2).
+      const i = args.indexOf('--body-file');
+      if (i !== -1) corpoGravado = await readFile(args[i + 1], 'utf8');
       return { stdout: 'https://github.com/o/r/issues/7\n', stderr: '', code: 0 };
     },
   });
@@ -64,9 +68,7 @@ test('github monta gh issue create com body por arquivo (Task 6)', async () => {
   assert.ok(chamada.args.includes('lms-bug'));
 
   // O corpo vai por ARQUIVO: texto multilinha de modelo nunca entra em argv.
-  const iBody = chamada.args.indexOf('--body-file');
-  assert.notEqual(iBody, -1, 'body vai por arquivo');
-  const corpoGravado = await readFile(chamada.args[iBody + 1], 'utf8');
+  assert.notEqual(chamada.args.indexOf('--body-file'), -1, 'body vai por arquivo');
   assert.match(corpoGravado, /o stack cita/);
   for (const arg of chamada.args) {
     assert.equal(String(arg).includes('\n'), false, 'nenhum argumento carrega quebra de linha');
@@ -93,12 +95,22 @@ test('linear sem LINEAR_API_KEY avisa e segue (Task 6)', async () => {
   assert.match(r.motivo, /LINEAR_API_KEY/);
 });
 
+/** Le o payload GraphQL DURANTE a chamada: o temporario some no finally (P2-2). */
+async function payloadDe(args) {
+  const i = args.indexOf('--data-binary');
+  if (i === -1) return null;
+  const alvo = String(args[i + 1]);
+  return JSON.parse(await readFile(alvo.startsWith('@') ? alvo.slice(1) : alvo, 'utf8'));
+}
+
 test('linear: payload por arquivo e token fora de argv (Task 6)', async () => {
   const chamadas = [];
+  let payload = null;
   const r = await abrirIssue('linear', achado, {
     env: { LINEAR_API_KEY: 'lin_api_segredo', LINEAR_TEAM_ID: 'time-1' },
     exec: async (cmd, args) => {
       chamadas.push({ cmd, args });
+      payload = await payloadDe(args);
       return {
         stdout: `${JSON.stringify({ data: { issueCreate: { issue: { url: 'https://linear.app/x/issue/A-1' } } } })}\n200`,
         stderr: '',
@@ -117,11 +129,9 @@ test('linear: payload por arquivo e token fora de argv (Task 6)', async () => {
   }
   const iPayload = chamada.args.indexOf('--data-binary');
   assert.notEqual(iPayload, -1, 'payload GraphQL vai por arquivo');
-  const payload = String(chamada.args[iPayload + 1]);
-  assert.ok(payload.startsWith('@'), 'curl le o payload do arquivo, nao de argv');
-  const json = JSON.parse(await readFile(payload.slice(1), 'utf8'));
-  assert.match(json.query, /issueCreate/);
-  assert.equal(json.variables.input.teamId, 'time-1');
+  assert.ok(String(chamada.args[iPayload + 1]).startsWith('@'), 'curl le do arquivo, nao de argv');
+  assert.match(payload.query, /issueCreate/);
+  assert.equal(payload.variables.input.teamId, 'time-1');
 });
 
 test('linear com HTTP 500 avisa e segue (Task 6)', async () => {
@@ -146,12 +156,12 @@ test('tracker desconhecido cai em none em vez de rodar comando (Task 6)', async 
 // Ajuste 3 (ordem do Master): `teamId` pode vir da config; o env VENCE. Token
 // nunca: `LINEAR_API_KEY` continua so em env, porque config e versionada.
 test('linear: teamId da config e usado quando o env nao traz (Ajuste 3)', async () => {
-  const chamadas = [];
+  let payload = null;
   const r = await abrirIssue('linear', achado, {
     env: { LINEAR_API_KEY: 'lin_api_segredo' },
     opcoes: { teamId: 'time-da-config' },
     exec: async (cmd, args) => {
-      chamadas.push({ cmd, args });
+      payload = await payloadDe(args);
       return {
         stdout: `${JSON.stringify({ data: { issueCreate: { issue: { url: 'https://linear.app/x/issue/A-2' } } } })}\n200`,
         stderr: '',
@@ -160,18 +170,16 @@ test('linear: teamId da config e usado quando o env nao traz (Ajuste 3)', async 
     },
   });
   assert.equal(r.aberta, true);
-  const iPayload = chamadas[0].args.indexOf('--data-binary');
-  const json = JSON.parse(await readFile(String(chamadas[0].args[iPayload + 1]).slice(1), 'utf8'));
-  assert.equal(json.variables.input.teamId, 'time-da-config');
+  assert.equal(payload.variables.input.teamId, 'time-da-config');
 });
 
 test('linear: LINEAR_TEAM_ID do env vence a config (Ajuste 3)', async () => {
-  const chamadas = [];
+  let payload = null;
   await abrirIssue('linear', achado, {
     env: { LINEAR_API_KEY: 'lin_api_segredo', LINEAR_TEAM_ID: 'time-do-env' },
     opcoes: { teamId: 'time-da-config' },
     exec: async (cmd, args) => {
-      chamadas.push({ cmd, args });
+      payload = await payloadDe(args);
       return {
         stdout: `${JSON.stringify({ data: { issueCreate: { issue: { url: 'https://linear.app/x/issue/A-3' } } } })}\n200`,
         stderr: '',
@@ -179,9 +187,7 @@ test('linear: LINEAR_TEAM_ID do env vence a config (Ajuste 3)', async () => {
       };
     },
   });
-  const iPayload = chamadas[0].args.indexOf('--data-binary');
-  const json = JSON.parse(await readFile(String(chamadas[0].args[iPayload + 1]).slice(1), 'utf8'));
-  assert.equal(json.variables.input.teamId, 'time-do-env');
+  assert.equal(payload.variables.input.teamId, 'time-do-env');
 });
 
 test('linear sem teamId em lugar nenhum avisa e segue (Ajuste 3)', async () => {
@@ -194,4 +200,56 @@ test('linear sem teamId em lugar nenhum avisa e segue (Ajuste 3)', async () => {
   assert.equal(chamou, false);
   assert.equal(r.aberta, false);
   assert.match(r.motivo, /teamId|LINEAR_TEAM_ID/);
+});
+
+// P2-2 da revisao da Fase 5: o token saia de argv (correto) mas ficava em claro
+// num arquivo do /tmp que NADA apagava — nem no sucesso, nem no erro. Cada
+// triagem com tracker linear deixava mais uma copia do LINEAR_API_KEY na maquina.
+import { existsSync } from 'node:fs';
+import { dirname } from 'node:path';
+
+test('arquivo temporario com o token e removido no sucesso (P2-2)', async () => {
+  let pasta = '';
+  const r = await abrirIssue('linear', achado, {
+    env: { LINEAR_API_KEY: 'lin_api_segredo', LINEAR_TEAM_ID: 'time-1' },
+    exec: async (cmd, args) => {
+      const iPayload = args.indexOf('--data-binary');
+      pasta = dirname(String(args[iPayload + 1]).slice(1));
+      return {
+        stdout: `${JSON.stringify({ data: { issueCreate: { issue: { url: 'https://linear.app/x/i/A-1' } } } })}\n200`,
+        stderr: '',
+        code: 0,
+      };
+    },
+  });
+  assert.equal(r.aberta, true);
+  assert.ok(pasta, 'a pasta temporaria foi usada');
+  assert.equal(existsSync(pasta), false, 'nada com o token sobrevive a chamada');
+});
+
+test('arquivo temporario com o token e removido quando o comando falha (P2-2)', async () => {
+  let pasta = '';
+  const r = await abrirIssue('linear', achado, {
+    env: { LINEAR_API_KEY: 'lin_api_segredo', LINEAR_TEAM_ID: 'time-1' },
+    exec: async (cmd, args) => {
+      const iPayload = args.indexOf('--data-binary');
+      pasta = dirname(String(args[iPayload + 1]).slice(1));
+      throw new Error('spawn curl ENOENT');
+    },
+  });
+  assert.equal(r.aberta, false);
+  assert.equal(existsSync(pasta), false, 'nem no caminho de erro o token fica para tras');
+});
+
+test('o token nunca aparece em argv nem no motivo devolvido (P2-2)', async () => {
+  const r = await abrirIssue('linear', achado, {
+    env: { LINEAR_API_KEY: 'lin_api_segredo', LINEAR_TEAM_ID: 'time-1' },
+    exec: async () => { throw new Error('falhou com lin_api_segredo no meio da mensagem'); },
+  });
+  assert.equal(r.aberta, false);
+  assert.equal(
+    String(r.motivo).includes('lin_api_segredo'),
+    false,
+    'mensagem de erro de ferramenta nao pode vazar o token para log',
+  );
 });

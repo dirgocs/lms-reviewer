@@ -13,7 +13,7 @@
  * qualquer `ps` do sistema o leria.
  */
 import { execFile as execFileCallback } from 'node:child_process';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -69,6 +69,18 @@ function aviso(motivo) {
 }
 
 /**
+ * Mensagem de ferramenta vai para stderr e para o `.lms/bug-<id>.json`: se o
+ * token aparecer nela, ele vaza para log e para arquivo. Redige antes de propagar.
+ */
+function semSegredo(texto, segredos) {
+  let limpo = String(texto ?? '');
+  for (const segredo of segredos) {
+    if (segredo && segredo.length >= 8) limpo = limpo.split(segredo).join('[REDIGIDO]');
+  }
+  return limpo;
+}
+
+/**
  * Abre a issue no rastreador configurado. Nunca lança: o pior caso é
  * `{ aberta: false, motivo }` — o achado já está gravado de qualquer forma.
  */
@@ -81,6 +93,7 @@ export async function abrirIssue(tracker, finding, { env = process.env, exec = e
   const pasta = await mkdtemp(join(tmpdir(), 'lms-bug-'));
   const corpo = corpoDaIssue(finding, agente);
   const titulo = tituloDaIssue(finding);
+  const segredos = [String(env.LINEAR_API_KEY ?? '').trim()];
 
   try {
     if (escolhido === 'github') {
@@ -139,6 +152,12 @@ export async function abrirIssue(tracker, finding, { env = process.env, exec = e
     }
     return { aberta: true, tracker: 'linear', url };
   } catch (erro) {
-    return { ...aviso(`${escolhido}: ${erro.message}`), tracker: escolhido };
+    return { ...aviso(`${escolhido}: ${semSegredo(erro.message, segredos)}`), tracker: escolhido };
+  } finally {
+    // P2-2 da revisao da Fase 5: o token sai de argv (onde qualquer `ps` o leria)
+    // mas entra num arquivo de header. Nada o apagava — nem no sucesso, nem no
+    // erro —, entao cada triagem com tracker linear deixava mais uma copia do
+    // LINEAR_API_KEY em claro no /tmp, sobrevivendo a sessao.
+    await rm(pasta, { recursive: true, force: true });
   }
 }
