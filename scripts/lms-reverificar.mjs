@@ -161,7 +161,47 @@ export function loteDeFix(linhas, consumidas = 0) {
  * NUNCA grava `.lms/last.json`, NUNCA emite `accepted` — o aceite final sai so de
  * `runFallback` completo.
  */
+/**
+ * Alvos da re-verificacao a partir dos seletores da linha de comando.
+ *
+ * 1.4.1: nao existia seletor nenhum — a re-verificacao pegava todo CONFIRMED, e
+ * `pnpm lms:reverificar <ids>` nao tinha como ser usado. Alem do `id`, aceita o
+ * par `path:linha` (e o `path` sozinho), que e o seletor que o humano TEM na mao
+ * quando le o achado no relatorio.
+ *
+ * Seletor que nao casa volta em `desconhecidos` em vez de sumir: pedir a
+ * re-verificacao de um id errado e nao receber nada de volta e pior que o erro.
+ */
+export function selecionarAlvos(findings, seletores = []) {
+  const confirmados = (Array.isArray(findings) ? findings : []).filter(
+    (f) => (f.verdict ?? 'CONFIRMED') === 'CONFIRMED',
+  );
+  const limpos = seletores.map((s) => String(s ?? '').trim()).filter(Boolean);
+  if (limpos.length === 0) return { alvos: confirmados, desconhecidos: [] };
+
+  const casa = (finding, seletor) => {
+    if (finding.id && finding.id === seletor) return true;
+    const path = String(finding.path ?? '').trim();
+    if (!path) return false;
+    // `path:linha` exato, ou `path` sem linha cobrindo qualquer linha dele.
+    return path === seletor || path.split(':')[0] === seletor;
+  };
+
+  const alvos = [];
+  const desconhecidos = [];
+  for (const seletor of limpos) {
+    const casados = confirmados.filter((f) => casa(f, seletor));
+    if (casados.length === 0) {
+      desconhecidos.push(seletor);
+      continue;
+    }
+    for (const finding of casados) if (!alvos.includes(finding)) alvos.push(finding);
+  }
+  return { alvos, desconhecidos };
+}
+
 export async function runReverificacao({
+  seletores = [],
   root = process.cwd(),
   env = process.env,
   collect,
@@ -203,9 +243,14 @@ export async function runReverificacao({
     return { status: 'recusada', motivo, abertos: [], fechados: [] };
   }
 
-  const alvos = (scorecard.findings ?? []).filter(
-    (f) => (f.verdict ?? 'CONFIRMED') === 'CONFIRMED',
-  );
+  const { alvos, desconhecidos } = selecionarAlvos(scorecard.findings, seletores);
+  // Seletor que nao casou nao pode passar batido: quem pediu a re-verificacao de
+  // um id errado receberia "nada a fazer" e concluiria que o achado fechou.
+  if (desconhecidos.length > 0) {
+    const motivo = `seletor sem achado CONFIRMED correspondente: ${desconhecidos.join(', ')}`;
+    console.error(`lms-reverificar: recusada — ${motivo}`);
+    return { status: 'recusada', motivo, abertos: [], fechados: [] };
+  }
   if (alvos.length === 0) {
     return { status: 'ok', abertos: [], fechados: [], results: [] };
   }
@@ -301,7 +346,12 @@ export async function runReverificacao({
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const resultado = await runReverificacao({ root: process.cwd(), env: process.env });
+  const resultado = await runReverificacao({
+    root: process.cwd(),
+    env: process.env,
+    // Aceita id e o par path:linha — o seletor que o humano tem na mao.
+    seletores: process.argv.slice(2).filter((arg) => !arg.startsWith('--')),
+  });
   console.log(JSON.stringify(resultado, null, 2));
   process.exitCode = resultado.status === 'ok' ? 0 : 1;
 }

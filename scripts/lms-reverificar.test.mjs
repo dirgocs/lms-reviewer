@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   aplicarReverificacao,
+  selecionarAlvos,
   parseReverificacao,
   reverificarPrompt,
 } from './lms-reverificar.mjs';
@@ -99,7 +100,7 @@ test('parseReverificacao extrai o objeto com results e ignora o resto (Task 3)',
 
 // Task 4 da Fase 4: wiring com o verificador da Fase 2 — fechamento so vale
 // quando o verificador independente nao derruba, e NUNCA publica scorecard.
-import { mkdtemp, mkdir, writeFile, readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFile as execFileCallback } from 'node:child_process';
@@ -299,4 +300,76 @@ test('cada grupo de found_by re-verifica com o proprio revisor (P2-7)', async ()
   assert.deepEqual(reverifs.map((c) => c.provider), ['codex', 'grok']);
   assert.deepEqual(reverifs[0].ids, ['aaa111'], 'o prompt so traz os ids do proprio grupo');
   assert.deepEqual(reverifs[1].ids, ['bbb222']);
+});
+
+// 1.4.1 defeito 2: `pnpm lms:reverificar <ids>` nao tinha como ser usado — nao
+// existia seletor nenhum, a re-verificacao pegava todo CONFIRMED. E como o
+// candidato chegava sem id, o par path:linha e o seletor que o humano TEM na mao.
+const achados = [
+  { id: 'aaa111', lens: 'code-safety', path: 'services/api/x.ts:42', title: 't1', verdict: 'CONFIRMED' },
+  { id: 'bbb222', lens: 'code-quality', path: 'apps/web/y.tsx:7', title: 't2', verdict: 'CONFIRMED' },
+];
+
+test('selecionarAlvos sem seletor devolve todos os CONFIRMED (1.4.1)', () => {
+  const r = selecionarAlvos(achados, []);
+  assert.deepEqual(r.alvos.map((a) => a.id), ['aaa111', 'bbb222']);
+  assert.deepEqual(r.desconhecidos, []);
+});
+
+test('selecionarAlvos aceita id (1.4.1)', () => {
+  const r = selecionarAlvos(achados, ['bbb222']);
+  assert.deepEqual(r.alvos.map((a) => a.id), ['bbb222']);
+});
+
+test('selecionarAlvos aceita o par path:linha (1.4.1)', () => {
+  const r = selecionarAlvos(achados, ['services/api/x.ts:42']);
+  assert.deepEqual(r.alvos.map((a) => a.id), ['aaa111'], 'o seletor que o humano tem na mao');
+});
+
+test('selecionarAlvos aceita path sem linha (1.4.1)', () => {
+  const r = selecionarAlvos(achados, ['apps/web/y.tsx']);
+  assert.deepEqual(r.alvos.map((a) => a.id), ['bbb222']);
+});
+
+test('selecionarAlvos nomeia o seletor que nao casou, em vez de silenciar (1.4.1)', () => {
+  const r = selecionarAlvos(achados, ['nao/existe.ts:1', 'aaa111']);
+  assert.deepEqual(r.alvos.map((a) => a.id), ['aaa111']);
+  assert.deepEqual(r.desconhecidos, ['nao/existe.ts:1'], 'seletor errado nao pode passar batido');
+});
+
+test('selecionarAlvos nao devolve achado ja PLAUSIBLE (1.4.1)', () => {
+  const comPlausivel = [...achados, { id: 'ccc333', path: 'z.ts:1', verdict: 'PLAUSIBLE' }];
+  assert.deepEqual(selecionarAlvos(comPlausivel, ['z.ts:1']).alvos, []);
+  assert.deepEqual(selecionarAlvos(comPlausivel, ['z.ts:1']).desconhecidos, ['z.ts:1']);
+});
+
+test('runReverificacao aceita path:linha como seletor (1.4.1)', async () => {
+  const { root } = await repoPosFix();
+  const collect = async ({ prompt }) => {
+    if (prompt.includes('DEMOLISH')) {
+      return { kind: 'ok', candidate: { id: 'aaa111', verdict: 'PLAUSIBLE', why: 'nao reproduzi' } };
+    }
+    return {
+      kind: 'ok',
+      candidate: { results: [{ id: 'aaa111', status: 'closed', why: 'aceitacao passa', evidence: 'a.ts:1' }] },
+    };
+  };
+  const r = await runReverificacao({ root, env: {}, collect, seletores: ['a.ts:1'] });
+  assert.equal(r.status, 'ok');
+  assert.deepEqual(r.fechados, ['aaa111'], 'o par path:linha seleciona o achado');
+  await rm(root, { recursive: true, force: true });
+});
+
+test('runReverificacao recusa seletor que nao casa, em vez de dizer "nada a fazer" (1.4.1)', async () => {
+  const { root } = await repoPosFix();
+  let chamou = false;
+  const r = await runReverificacao({
+    root, env: {},
+    collect: async () => { chamou = true; return { kind: 'ok', candidate: null }; },
+    seletores: ['zzz999'],
+  });
+  assert.equal(r.status, 'recusada');
+  assert.match(r.motivo, /zzz999/, 'o seletor errado e nomeado');
+  assert.equal(chamou, false, 'nao gasta cota com selecao vazia');
+  await rm(root, { recursive: true, force: true });
 });

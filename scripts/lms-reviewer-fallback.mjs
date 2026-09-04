@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import {
   scorecardError,
   scorecardFormError,
+  comIdsDeAchado,
   findingId,
   verifiedDiskError,
 } from './lms-scorecard.mjs';
@@ -673,7 +674,10 @@ async function writeScorecard(root, value) {
   const dir = join(root, '.lms');
   await mkdir(dir, { recursive: true });
   const temporary = join(dir, `last.json.${process.pid}.tmp`);
-  await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+  // 1.4.1: garantia final de que todo achado publicado tem id. `stampScorecard`
+  // ja deriva no caminho normal, mas last.json e a fonte que `lms:reverificar` le
+  // — achado sem id ali e um achado que ninguem consegue selecionar.
+  await writeFile(temporary, `${JSON.stringify(comIdsDeAchado(value), null, 2)}\n`, 'utf8');
   await rename(temporary, join(dir, 'last.json'));
 }
 

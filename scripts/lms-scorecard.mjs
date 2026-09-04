@@ -176,6 +176,29 @@ const SEVERIDADES = new Set(['P0', 'P1', 'P2']);
  * retrato — nao da para dizer se "corrigi" mudou codigo, nem se o P1 desta rodada e
  * o mesmo da anterior.
  */
+/**
+ * Preenche o `id` DERIVADO em todo achado que chegou sem ele.
+ *
+ * 1.4.1: o candidato do provider chegava sem `id`, e sem id nao ha como
+ * selecionar achado para re-verificar — `pnpm lms:reverificar <ids>` ficava
+ * inutilizavel. O id nunca foi julgado pelo modelo: e hash de (lens, path sem
+ * linha, title), entao o runner consegue derivar o que faltou sem inventar nada.
+ * Id ja presente e preservado — sobrescrever quebraria a rastreabilidade entre
+ * iteracoes, que e o motivo de o id existir.
+ */
+export function comIdsDeAchado(scorecard) {
+  if (!scorecard || typeof scorecard !== 'object') return scorecard;
+  if (!Array.isArray(scorecard.findings)) return { ...scorecard };
+  return {
+    ...scorecard,
+    findings: scorecard.findings.map((finding) => (
+      finding && typeof finding === 'object' && !finding.id
+        ? { ...finding, id: findingId(finding) }
+        : finding
+    )),
+  };
+}
+
 export function findingId(finding) {
   const path = String(finding?.path ?? '').split(':')[0].trim();
   const material = [finding?.lens ?? '', path, String(finding?.title ?? '').trim().toLowerCase()];

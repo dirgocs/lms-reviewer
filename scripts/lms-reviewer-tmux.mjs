@@ -20,6 +20,7 @@ import { execFile as execFileCb } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { comIdsDeAchado } from './lms-scorecard.mjs';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { reportarDesfecho, runFallback } from './lms-reviewer-fallback.mjs';
@@ -329,10 +330,19 @@ async function collectTmux({
         leituraAnterior = texto;
         continue;
       }
+      // 1.4.1: o modelo entrega achado sem `id`, e este arquivo e o unico artefato
+      // quando a rodada e derrubada — sem id nao ha o que passar para
+      // `lms:reverificar`. O id e derivado (findingId), nunca julgado, entao da
+      // para preencher e PERSISTIR de volta, para o humano ter o seletor na mao.
+      const comIds = comIdsDeAchado(candidate);
+      if (comIds !== candidate && JSON.stringify(comIds) !== texto) {
+        await writeFile(outPath, `${JSON.stringify(comIds, null, 2)}\n`, 'utf8').catch(() => {});
+      }
+
       // Fase 4 Task 2: manterJanela preserva a TUI com contexto — a re-verificacao
       // reusa a sessao em vez de acordar um processo virgem.
       if (!manterJanela) await killWindow(provider);
-      return { kind: 'ok', candidate };
+      return { kind: 'ok', candidate: comIds };
     } catch {
       leituraAnterior = null;
     }

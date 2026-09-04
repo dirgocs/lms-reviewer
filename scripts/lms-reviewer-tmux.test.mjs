@@ -6,6 +6,7 @@ import { join } from 'node:path';
 
 import { attemptProvider, reviewPrompt, runFallback, stampScorecard } from './lms-reviewer-fallback.mjs';
 import { caminhosDaColeta, collectTmux, lerCandidato, sessionNameFor, tuiCommand } from './lms-reviewer-tmux.mjs';
+import { findingId } from './lms-scorecard.mjs';
 
 /** Scorecard bem formado; `inspected` é preenchido pelo teste contra arquivos reais. */
 function scorecard(overrides = {}) {
@@ -313,6 +314,55 @@ test('collectTmux roda no modo tmux sem relPrompt indefinido (P1-1)', async () =
     });
     assert.equal(saida.kind, 'ok', `veio ${saida.kind}: ${JSON.stringify(saida)}`);
     assert.deepEqual(saida.candidate, { ok: true });
+  } finally {
+    process.env.PATH = PATHAnterior;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// 1.4.1 defeito 2: o candidato do provider chega sem `id` nos achados. O arquivo
+// `.lms/candidates/<p>.json` e o unico artefato quando a rodada e derrubada — se
+// ele nao tem id, nao ha o que passar para `lms:reverificar`.
+test('collectTmux persiste o id derivado no candidates/<p>.json (1.4.1)', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'lms-tmux-id-'));
+  const fakeDir = join(root, 'bin');
+  await mkdir(fakeDir, { recursive: true });
+  const fakeTmux = join(fakeDir, 'tmux');
+  const semId = JSON.stringify({
+    score: 4,
+    findings: [{ lens: 'code-safety', severity: 'P1', confidence: 90, path: 'a.ts:42', title: 'sem filtro', why: 'x' }],
+  });
+  await writeFile(fakeTmux, [
+    '#!/usr/bin/env node',
+    'const args = process.argv.slice(2);',
+    "const fs = require('node:fs');",
+    "if (args.includes('capture-pane')) { console.log('Working'); process.exit(0); }",
+    "if (args.includes('list-sessions')) { console.log('lms-review-fake'); process.exit(0); }",
+    "if (args.includes('send-keys') && process.env.FAKE_OUT && !fs.existsSync(process.env.FAKE_OUT)) {",
+    "  fs.mkdirSync(require('node:path').dirname(process.env.FAKE_OUT), { recursive: true });",
+    `  fs.writeFileSync(process.env.FAKE_OUT, ${JSON.stringify(semId)});`,
+    '}',
+    'process.exit(0);',
+  ].join('\n'));
+  await chmod(fakeTmux, 0o755);
+
+  const PATHAnterior = process.env.PATH;
+  process.env.PATH = `${fakeDir}:${PATHAnterior}`;
+  const outPath = join(root, '.lms', 'candidates', 'grok.json');
+  process.env.FAKE_OUT = outPath;
+  process.env.LMS_TMUX_BOOT_MS = '50';
+  process.env.LMS_TMUX_POLL_MS = '50';
+  process.env.LMS_TMUX_TIMEOUT_MS = '5000';
+  try {
+    const saida = await collectTmux({
+      root, provider: 'grok', config: { models: { grok: 'grok-4.6' } }, prompt: 'revise', parse: null,
+    });
+    assert.equal(saida.kind, 'ok', `veio ${saida.kind}`);
+    const esperado = findingId({ lens: 'code-safety', path: 'a.ts:42', title: 'sem filtro' });
+    assert.equal(saida.candidate.findings[0].id, esperado, 'o candidato devolvido ja tem id');
+
+    const gravado = JSON.parse(await readFile(outPath, 'utf8'));
+    assert.equal(gravado.findings[0].id, esperado, 'o arquivo em disco tambem, para o humano usar');
   } finally {
     process.env.PATH = PATHAnterior;
     await rm(root, { recursive: true, force: true });

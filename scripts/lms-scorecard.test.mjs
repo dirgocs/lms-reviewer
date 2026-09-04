@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-import { coverageDiffError, findingsShapeError, findingId, scorecardError, scorecardFormError, validateScorecard } from './lms-scorecard.mjs';
+import { coverageDiffError, comIdsDeAchado, findingsShapeError, findingId, scorecardError, scorecardFormError, validateScorecard } from './lms-scorecard.mjs';
 
 const now = Date.parse('2026-07-10T00:00:00.000Z');
 const options = {
@@ -443,4 +443,27 @@ test('gate ignora achado fechado pela re-verificação, cruzando pelo subject (P
   }));
   const terceiro = await rodarCli(root);
   assert.equal(terceiro.code, 1, 'subject diferente nao cruza');
+});
+
+// 1.4.1 defeito 2 (visto nas lanes do Karibu): achados do candidato chegavam sem
+// `id`, e sem id nao ha como selecionar achado para re-verificar. O id e DERIVADO
+// (findingId), nunca julgado pelo modelo — entao da para preencher o que faltou.
+test('comIdsDeAchado deriva o id que falta e preserva o que ja existe (1.4.1)', () => {
+  const scorecard = {
+    score: 4,
+    findings: [
+      { lens: 'code-safety', path: 'a.ts:10', title: 'sem filtro de tenant', why: 'x' },
+      { lens: 'code-quality', path: 'b.ts:2', title: 'nome ruim', why: 'y', id: 'jaTinha1234' },
+    ],
+  };
+  const comIds = comIdsDeAchado(scorecard);
+  assert.equal(comIds.findings[0].id, findingId(scorecard.findings[0]), 'id derivado do achado');
+  assert.equal(comIds.findings[1].id, 'jaTinha1234', 'id existente nao e sobrescrito');
+  assert.notEqual(comIds, scorecard, 'nao muta o original');
+});
+
+test('comIdsDeAchado aguenta scorecard sem findings (1.4.1)', () => {
+  assert.deepEqual(comIdsDeAchado({ score: 5 }).findings, undefined);
+  assert.deepEqual(comIdsDeAchado(null), null);
+  assert.deepEqual(comIdsDeAchado({ findings: 'nao e lista' }).findings, 'nao e lista');
 });
