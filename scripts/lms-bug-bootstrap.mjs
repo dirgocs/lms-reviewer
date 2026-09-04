@@ -379,7 +379,16 @@ export async function runBootstrap({
     );
     const escolhidos = new Set(nomes.split(',').map((n) => n.trim()).filter(Boolean));
     const filtradas = propostas.filter((p) => escolhidos.has(p.nome));
-    if (filtradas.length) propostas = filtradas;
+    // P3-2: manter TODAS quando nenhum nome casa transforma um typo em "escrevo
+    // tudo", o oposto do que o usuario pediu. Conjunto vazio e cancelamento.
+    if (filtradas.length === 0) {
+      console.error(
+        'lms-bug-bootstrap: nenhuma superfície reconhecida na sua resposta '
+        + `(esperava um destes: ${propostas.map((p) => p.nome).join(', ')}) — nada escrito`,
+      );
+      return { propostas, escritos: 0, pulados: [], confirmado: false };
+    }
+    propostas = filtradas;
 
     for (const proposta of propostas) {
       const paths = await perguntar(

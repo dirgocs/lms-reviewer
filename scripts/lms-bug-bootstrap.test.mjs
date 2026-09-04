@@ -350,3 +350,31 @@ test('--force sobrescreve, mas so quando pedido explicitamente (P1-2)', async ()
   assert.equal(resultado.pulados.length, 0);
   await rm(root, { recursive: true, force: true });
 });
+
+// P3-2 da revisao da Fase 5: no modo guiado, resposta 1 sem nenhum nome
+// reconhecido (um typo) mantinha TODAS as propostas em silencio — o oposto do que
+// o usuario pediu.
+test('guiado: nenhum nome reconhecido cancela em vez de manter tudo (P3-2)', async () => {
+  const root = await repoBootstrap();
+  const avisos = [];
+  const original = console.error;
+  console.error = (msg) => avisos.push(String(msg));
+  try {
+    const resultado = await runBootstrap({
+      root,
+      guided: true,
+      yes: false,
+      pergunta: async (texto) => (texto.includes('superfícies') ? 'servicos-worker' : 'y'),
+    });
+    assert.equal(resultado.escritos, 0, 'typo nao pode virar "escrevo tudo"');
+    assert.equal(resultado.confirmado, false);
+  } finally {
+    console.error = original;
+  }
+  assert.ok(
+    avisos.some((a) => /nenhuma superfície reconhecida|nenhum nome/i.test(a)),
+    'o usuario precisa saber por que nada foi escrito',
+  );
+  assert.deepEqual(await carregarAgentes(root, '.agents/bug-triage'), []);
+  await rm(root, { recursive: true, force: true });
+});

@@ -494,3 +494,23 @@ test('caminhosDoSinal ignora caminho que sai da raiz (P3-3)', async () => {
   assert.deepEqual(caminhos, ['app/ok.py'], 'so o que esta sob a raiz e conferido');
   await rm(root, { recursive: true, force: true });
 });
+
+// P3-1 da revisao da Fase 5: `achadoDoSinal` LANCA (path sem linha, forma
+// invalida) e o runner nao capturava. O main() morria com rejeicao nao tratada:
+// fail-closed no codigo de saida, mas sem a linha `recusada — ...` que todos os
+// outros desfechos tem.
+test('relato que nao vira achado recusa com motivo, nao com excecao (P3-1)', async () => {
+  const root = await repoComSinal();
+  const r = await runTriageBug({
+    root, env: {},
+    // `why` presente (passa o parse) mas path sem `:linha`: achadoDoSinal lanca.
+    collect: async () => ({
+      kind: 'ok',
+      candidate: { path: 'workers/x.py', lens: 'code-safety', title: 't', why: 'sem linha nenhuma' },
+    }),
+    argv: [join(root, 'sinal.log')],
+  });
+  assert.equal(r.exitCode, 1);
+  assert.match(r.motivo, /linha/i, 'o motivo nomeia o que faltou');
+  await rm(root, { recursive: true, force: true });
+});

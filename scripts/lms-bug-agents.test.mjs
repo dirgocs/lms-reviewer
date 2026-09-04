@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile as execFileCallback } from 'node:child_process';
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -191,4 +191,29 @@ test('agente coringa nao vence agente especifico (P2-1)', () => {
   // Aqui provamos o efeito que a recusa evita: escore de padrao vazio seria total.
   const sinal = { texto: 'nada a ver com este agente', caminhos_citados: [], tags: [] };
   assert.equal(escolherAgente([especifico], sinal), null, 'sem match real, ninguem casa');
+});
+
+// P3-5(d) da revisao da Fase 5: faltava cobrir o agente apenas STAGED. `git add`
+// sem commit e o caso classico de "editei a instrucao no mesmo turno em que ela e
+// lida" — a guarda precisa recusar, e nao ha teste provando isso.
+test('agente staged (git add sem commit) e recusado (P3-5)', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'lms-agents-staged-'));
+  await execFile('git', ['init', '-q'], { cwd: root });
+  await execFile('git', ['config', 'user.email', 'lms@test'], { cwd: root });
+  await execFile('git', ['config', 'user.name', 'lms'], { cwd: root });
+  const dir = join(root, '.agents', 'bug-triage');
+  await mkdir(dir, { recursive: true });
+  const arquivo = join(dir, 'fiscal.md');
+  await writeFile(arquivo, agenteFiscal);
+  await execFile('git', ['add', '.'], { cwd: root });
+  await execFile('git', ['commit', '-qm', 'agente'], { cwd: root });
+
+  // Editado E staged: `git add` sem commit nao torna a instrucao imutavel.
+  await writeFile(arquivo, `${agenteFiscal}\nEditado no mesmo turno.\n`);
+  await execFile('git', ['add', '.'], { cwd: root });
+
+  const guarda = await agenteCommitado(root, arquivo);
+  assert.equal(guarda.commitado, false, 'staged nao e commitado');
+  assert.equal(guarda.estado, 'modificado');
+  await rm(root, { recursive: true, force: true });
 });

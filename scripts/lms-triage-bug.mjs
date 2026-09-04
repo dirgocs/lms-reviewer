@@ -371,7 +371,17 @@ export async function runTriageBug({
     return { exitCode: 1, motivo, abertos: [], fechados: [] };
   }
 
-  const achado = achadoDoSinal(relato, sinalBase, agente, provider);
+  // P3-1: achadoDoSinal lanca (path sem linha, forma invalida). Sem captura, o
+  // main() morria com rejeicao nao tratada — fail-closed no codigo de saida, mas
+  // sem a linha `recusada — ...` que todo outro desfecho imprime.
+  let achado;
+  try {
+    achado = achadoDoSinal(relato, sinalBase, agente, provider);
+  } catch (erro) {
+    const motivo = `relato não vira achado do contrato: ${erro.message}`;
+    console.error(`lms-triage-bug: recusada — ${motivo}`);
+    return { exitCode: 1, motivo, abertos: [], fechados: [] };
+  }
   const erroDeDisco = await conferirPathNoDisco(achado, root);
   if (erroDeDisco) {
     const motivo = `triagem recusada: ${erroDeDisco}`;

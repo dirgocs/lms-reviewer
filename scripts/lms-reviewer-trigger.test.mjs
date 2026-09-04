@@ -293,3 +293,4 @@ test('veredito do trigger reflete a rodada atual, nao a anterior (P2-3)', async 
     await rm(root, { recursive: true, force: true });
   }
 });
+
