@@ -2021,6 +2021,9 @@ async function resolverAceite({ root, env, provider, attempt, attempts, contradi
     return {
       ok: false,
       rejectedBy: contraditorio.refutador,
+      // 1.4.1: sem isto o veredito refutado saia sem dizer de quem era o 5/5.
+      reviewer: provider,
+      refutador: contraditorio.refutador,
       reason: `contraditorio derrubou o 5/5 de ${provider}: ${contraditorio.titulo}`,
       ...(escalada ? { escalated: true, escalationReason: escalada } : {}),
       attempts,
@@ -2103,6 +2106,34 @@ export async function registrarVeredito(root, { estado, score, reviewer, refutad
  * e refuted; reprovacao do revisor e rejected; cadeia que nao produziu veredito
  * nenhum vira timeout ou invalid-output conforme a tentativa — nunca aceite.
  */
+/**
+ * Campos do veredito a partir do desfecho e do que a cadeia soube no caminho.
+ *
+ * 1.4.1: sairam todos `null` em producao — quem esperava o arquivo descobria o
+ * estado e nada mais. Cada estado tem o que dizer:
+ *
+ * - `accepted`: quem revisou, quem contestou sem derrubar, e o score aceito.
+ * - `refuted`: quem teve o 5/5 DERRUBADO (reviewer) e quem derrubou (refutador),
+ *   mais o score que caiu — sem isso "refuted" nao diz de quem foi a rodada.
+ * - `rejected`: quem reprovou revisou; reprovacao de revisor nao tem refutador.
+ * - `timeout`/`invalid-output`: ninguem julgou, mas o subject da rodada continua
+ *   sendo o que identifica QUAL espera terminou.
+ */
+export function camposDoVeredito(resultado, contexto = {}) {
+  const estado = estadoDoDesfecho(resultado);
+  const reviewer = resultado?.acceptedBy ?? resultado?.reviewer
+    ?? (estado === 'rejected' ? resultado?.rejectedBy ?? null : null);
+  const refutador = resultado?.contestedBy ?? resultado?.refutador
+    ?? (estado === 'refuted' ? resultado?.rejectedBy ?? null : null);
+  return {
+    estado,
+    score: typeof contexto.score === 'number' ? contexto.score : null,
+    reviewer: reviewer ?? null,
+    refutador: refutador ?? null,
+    subject: contexto.subject ?? null,
+  };
+}
+
 function estadoDoDesfecho(resultado) {
   if (resultado?.ok) return 'accepted';
   if (resultado?.contestedBy || /contraditorio derrubou/.test(resultado?.reason ?? '')) return 'refuted';
@@ -2135,13 +2166,7 @@ export async function runFallback(opcoes = {}) {
     });
     throw erro;
   }
-  await registrarVeredito(root, {
-    estado: estadoDoDesfecho(resultado),
-    score: contexto.score,
-    reviewer: resultado?.acceptedBy ?? null,
-    refutador: resultado?.contestedBy ?? resultado?.rejectedBy ?? null,
-    subject: contexto.subject,
-  });
+  await registrarVeredito(root, camposDoVeredito(resultado, contexto));
   return resultado;
 }
 

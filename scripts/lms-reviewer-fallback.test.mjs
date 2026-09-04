@@ -14,6 +14,7 @@ import {
   retryPrompt,
   runFallback,
   registrarVeredito,
+  camposDoVeredito,
   verificarProva,
 } from './lms-reviewer-fallback.mjs';
 import { findingId } from './lms-scorecard.mjs';
@@ -1848,4 +1849,100 @@ test('runFallback apaga o veredito da rodada anterior no inicio da cadeia (Ajust
   const veredito = JSON.parse(await readFile(caminho, 'utf8'));
   assert.equal(veredito.estado, 'timeout', 'o veredito final e o desta rodada');
   assert.equal(veredito.reviewer, null, 'nada da rodada anterior vaza');
+});
+
+// 1.4.1 defeito 1 (visto nas lanes do Karibu): `.lms/veredito.json` saia com
+// score/reviewer/refutador/subject = null em TODOS os estados. Quem espera o
+// arquivo so descobria o estado, nunca quem julgou nem com que score.
+test('camposDoVeredito: aceite carrega reviewer, refutador e score (1.4.1)', () => {
+  const campos = camposDoVeredito(
+    { ok: true, acceptedBy: 'grok', contestedBy: 'codex' },
+    { score: 5, subject: 'feat/x' },
+  );
+  assert.equal(campos.estado, 'accepted');
+  assert.equal(campos.reviewer, 'grok');
+  assert.equal(campos.refutador, 'codex');
+  assert.equal(campos.score, 5);
+  assert.equal(campos.subject, 'feat/x');
+});
+
+test('camposDoVeredito: refutado diz QUEM foi derrubado e por quem (1.4.1)', () => {
+  const campos = camposDoVeredito(
+    {
+      ok: false,
+      reviewer: 'grok',
+      rejectedBy: 'codex',
+      refutador: 'codex',
+      reason: 'contraditorio derrubou o 5/5 de grok: achado x',
+    },
+    { score: 5, subject: 'feat/x' },
+  );
+  assert.equal(campos.estado, 'refuted');
+  assert.equal(campos.reviewer, 'grok', 'o 5/5 derrubado era do grok');
+  assert.equal(campos.refutador, 'codex');
+  assert.equal(campos.score, 5, 'o score derrubado e o que a cadeia sabia');
+});
+
+test('camposDoVeredito: reprovado nomeia quem reprovou como reviewer (1.4.1)', () => {
+  const campos = camposDoVeredito(
+    { ok: false, rejectedBy: 'claude', attempts: [{ provider: 'claude', result: 'rejected' }] },
+    { subject: 'feat/x' },
+  );
+  assert.equal(campos.estado, 'rejected');
+  assert.equal(campos.reviewer, 'claude', 'quem reprovou revisou');
+  assert.equal(campos.refutador, null, 'reprovacao do revisor nao tem refutador');
+  assert.equal(campos.subject, 'feat/x');
+});
+
+test('camposDoVeredito: timeout preserva o subject da rodada (1.4.1)', () => {
+  const campos = camposDoVeredito(
+    { ok: false, acceptedBy: null, attempts: [{ provider: 'grok', result: 'timeout' }] },
+    { subject: 'feat/x' },
+  );
+  assert.equal(campos.estado, 'timeout');
+  assert.equal(campos.subject, 'feat/x', 'quem espera precisa saber de QUE rodada e o timeout');
+  assert.equal(campos.reviewer, null);
+});
+
+test('runFallback grava o veredito do aceite com reviewer e refutador reais (1.4.1)', async () => {
+  const { root, env, scorecardValido } = await fixture();
+  const collect = async ({ provider, prompt }) => {
+    if (prompt.includes('DEMOLISH')) {
+      return { kind: 'ok', candidate: { id: 'abc123', verdict: 'CONFIRMED', why: 'confere' } };
+    }
+    if (provider === 'claude') return { kind: 'ok', candidate: scorecardValido };
+    return { kind: 'ok', candidate: { refuted: false, confidence: 0, inspected: provaDeLeituraFixture } };
+  };
+  await runFallback({ root, base, env, collect });
+
+  const veredito = JSON.parse(await readFile(join(root, '.lms', 'veredito.json'), 'utf8'));
+  assert.equal(veredito.estado, 'accepted');
+  assert.equal(veredito.reviewer, 'claude');
+  assert.equal(veredito.refutador, 'grok');
+  assert.equal(veredito.score, 5, 'o score aceito nao pode sair null');
+});
+
+test('runFallback grava reviewer no veredito refutado (1.4.1)', async () => {
+  const { root, env, scorecardValido } = await fixture();
+  const collect = async ({ provider, prompt }) => {
+    if (prompt.includes('DEMOLISH')) {
+      return { kind: 'ok', candidate: { id: 'abc123', verdict: 'CONFIRMED', why: 'confere' } };
+    }
+    if (provider === 'claude') return { kind: 'ok', candidate: scorecardValido };
+    return {
+      kind: 'ok',
+      candidate: {
+        refuted: true, confidence: 90, severity: 'P1', path: 'a.ts:1',
+        why: 'a query nao escopa por tenant e o teste nao cobre',
+        title: 'falta filtro de tenant', inspected: provaDeLeituraFixture,
+      },
+    };
+  };
+  await runFallback({ root, base, env, collect });
+
+  const veredito = JSON.parse(await readFile(join(root, '.lms', 'veredito.json'), 'utf8'));
+  assert.equal(veredito.estado, 'refuted');
+  assert.equal(veredito.reviewer, 'claude', 'o 5/5 derrubado era do claude');
+  assert.equal(veredito.refutador, 'grok');
+  assert.equal(veredito.score, 5, 'o score derrubado e o que a cadeia sabia');
 });

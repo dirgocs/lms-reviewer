@@ -294,3 +294,45 @@ test('veredito do trigger reflete a rodada atual, nao a anterior (P2-3)', async 
   }
 });
 
+
+// 1.4.1 defeito 1 (segunda metade): `finalizar` reescrevia SEMPRE com nulls
+// hardcoded, entao o veredito rico que o runner acabara de gravar (reviewer,
+// refutador, score, subject) era apagado pelo trigger na mesma rodada.
+test('trigger preserva os campos que o runner gravou nesta rodada (1.4.1)', async () => {
+  const { root, runner } = await fixture({ reviewer: 'grok', score: 2 });
+  try {
+    const r = await runTrigger({
+      root,
+      runner,
+      extraEnv: { LMS_TEST_RUNNER_MODE: 'fail', LMS_TEST_RUNNER_VEREDITO: 'refuted' },
+    });
+    assert.equal(r.code, 1);
+    assert.equal(ultimaLinha(r.stderr), 'LMS VEREDITO: refuted');
+    const veredito = JSON.parse(await readFile(join(root, '.lms', 'veredito.json'), 'utf8'));
+    assert.equal(veredito.estado, 'refuted');
+    assert.equal(veredito.reviewer, 'claude', 'o trigger nao pode zerar quem revisou');
+    assert.equal(veredito.refutador, 'grok', 'nem quem refutou');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// A trava de P1-1 continua: estado divergente do arquivo significa que quem manda
+// e o trigger, e ai o arquivo e reescrito (sem herdar campos de outro desfecho).
+test('estado divergente do arquivo faz o trigger reescrever o veredito (1.4.1)', async () => {
+  const { root, runner } = await fixture({ reviewer: 'grok', score: 2 });
+  try {
+    const r = await runTrigger({
+      root,
+      runner,
+      extraEnv: { LMS_TEST_RUNNER_MODE: 'fail', LMS_TEST_RUNNER_VEREDITO: 'accepted' },
+    });
+    assert.equal(r.code, 1, 'accepted do runner sem scorecard validado nao libera');
+    assert.equal(ultimaLinha(r.stderr), 'LMS VEREDITO: timeout');
+    const veredito = JSON.parse(await readFile(join(root, '.lms', 'veredito.json'), 'utf8'));
+    assert.equal(veredito.estado, 'timeout');
+    assert.equal(veredito.reviewer, null, 'campos de um desfecho que nao vale nao sobrevivem');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

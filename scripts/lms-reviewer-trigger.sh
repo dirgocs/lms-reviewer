@@ -137,9 +137,16 @@ finalizar() {
   fi
   [ -n "$estado" ] || estado="timeout"
 
-  mkdir -p "$ROOT/.lms"
-  printf '{\n  "estado": "%s",\n  "score": null,\n  "reviewer": null,\n  "refutador": null,\n  "subject": null,\n  "at": "%s"\n}\n' \
-    "$estado" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$VEREDITO_FILE"
+  # 1.4.1: o runner grava o veredito RICO (reviewer, refutador, score, subject) e o
+  # trigger reescrevia por cima com nulls, na mesma rodada. Quando o estado final
+  # bate com o que esta no arquivo, o arquivo e desta rodada (foi apagado no
+  # inicio) e diz mais do que o trigger sabe — preserva. So reescreve quando o
+  # trigger discorda, e ai os campos do desfecho vencido nao podem sobreviver.
+  if [ "$(veredito_estado || true)" != "$estado" ]; then
+    mkdir -p "$ROOT/.lms"
+    printf '{\n  "estado": "%s",\n  "score": null,\n  "reviewer": null,\n  "refutador": null,\n  "subject": null,\n  "at": "%s"\n}\n' \
+      "$estado" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$VEREDITO_FILE"
+  fi
 
   echo "LMS VEREDITO: $estado" >&2
   if [ "$estado" = "accepted" ]; then exit 0; fi
