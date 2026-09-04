@@ -157,3 +157,58 @@ test('runTriageBug: sinal vazio recusa com exit 2 (Task 4)', async () => {
   assert.equal(r.exitCode, 2);
   assert.match(r.motivo, /caminho|agente|sinal/i);
 });
+
+// Task 5 da Fase 5: --init dispara o bootstrap; o auto-init so acontece com o
+// diretorio vazio/ausente — diretorio com agente que NAO casou nunca gera arquivo.
+test('runTriageBug: --init roda o bootstrap e nao tria (Task 5)', async () => {
+  const root = await repoComSinal();
+  let triou = false;
+  const r = await runTriageBug({
+    root,
+    env: {},
+    collect: async () => { triou = true; return { kind: 'ok', candidate: null }; },
+    argv: ['--init'],
+    pergunta: async () => 'y',
+  });
+  assert.equal(r.exitCode, 0);
+  assert.equal(triou, false, '--init nao tria sinal nenhum');
+  assert.ok(r.bootstrap.escritos >= 1, 'o bootstrap escreveu agentes');
+});
+
+test('runTriageBug: auto-init com diretorio ausente propoe agentes (Task 5)', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'lms-triage-auto-'));
+  await execFile('git', ['init', '-q'], { cwd: root });
+  await execFile('git', ['config', 'user.email', 'lms@test'], { cwd: root });
+  await execFile('git', ['config', 'user.name', 'lms'], { cwd: root });
+  await mkdir(join(root, 'workers'), { recursive: true });
+  await writeFile(join(root, 'workers', 'fila.py'), 'linha1\n');
+  await writeFile(join(root, 'sinal.log'), 'HTTP 500 sem caminho citado\n');
+  await execFile('git', ['add', '.'], { cwd: root });
+  await execFile('git', ['commit', '-qm', 'fix: repo sem agentes'], { cwd: root });
+
+  const r = await runTriageBug({
+    root,
+    env: {},
+    collect: async () => ({ kind: 'ok', candidate: null }),
+    argv: [join(root, 'sinal.log')],
+    pergunta: async () => 'y',
+  });
+  assert.equal(r.exitCode, 2, 'a triagem falhou; o bootstrap so ajuda a sair do zero');
+  assert.ok(r.bootstrap?.escritos >= 1, 'diretorio ausente dispara o auto-init');
+  await rm(root, { recursive: true, force: true });
+});
+
+test('runTriageBug: agente que nao casou NAO dispara auto-init (Task 5)', async () => {
+  const root = await repoComSinal();
+  await writeFile(join(root, 'sinal.log'), 'HTTP 500 sem caminho citado nem match\n');
+  const r = await runTriageBug({
+    root,
+    env: {},
+    collect: async () => ({ kind: 'ok', candidate: null }),
+    argv: [join(root, 'sinal.log')],
+    pergunta: async () => 'y',
+  });
+  assert.equal(r.exitCode, 2);
+  assert.equal(r.bootstrap, undefined, 'nenhum agente cobre o sinal != gerar arquivos');
+  await rm(root, { recursive: true, force: true });
+});

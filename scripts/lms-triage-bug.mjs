@@ -14,6 +14,7 @@
 import { createHash } from 'node:crypto';
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { createInterface } from 'node:readline/promises';
 
 import { citationShapeError, citationsDiskError } from './lms-inspection.mjs';
 import { findingsShapeError, findingId } from './lms-scorecard.mjs';
@@ -25,6 +26,7 @@ import {
   carregarAgentes,
   escolherAgente,
 } from './lms-bug-agents.mjs';
+import { deveBootstrapar, runBootstrap } from './lms-bug-bootstrap.mjs';
 
 /**
  * Tags de padrões ESTRUTURAIS agnósticos (código HTTP, nome de exceção,
@@ -205,7 +207,22 @@ export async function runTriageBug({
   env = process.env,
   collect = collectHeadless,
   argv = [],
+  pergunta,
 } = {}) {
+  // Task 5: --init é bootstrap, não triagem — sai antes de tudo, inclusive do
+  // gate de LMS_VERIFY: gerar arquivo de agente não abre issue nenhuma.
+  if (argv.includes('--init')) {
+    const config = loadConfig(root);
+    const bootstrap = await runBootstrap({
+      root,
+      dir: config.bugAgents.dir,
+      guided: argv.includes('--guided') || config.bugAgents.guided,
+      yes: argv.includes('--yes'),
+      pergunta,
+    });
+    return { exitCode: 0, bootstrap, abertos: [], fechados: [] };
+  }
+
   if (String(env.LMS_VERIFY ?? '1') === '0') {
     const motivo = 'LMS_VERIFY=0 — abrir issue sem contraditório é o buraco';
     console.error(`lms-triage-bug: recusada — ${motivo}`);
@@ -243,6 +260,19 @@ export async function runTriageBug({
       agente ? null : 'nenhum agente casa com o sinal (rode lms-triage-bug --init)',
     ].filter(Boolean).join('; ');
     console.error(`lms-triage-bug: recusada — ${motivo}`);
+
+    // Auto-init (spec §3.3): só com sinal que tem texto, nenhum agente casando E o
+    // diretório vazio/ausente. Diretório com agente que não casou NÃO dispara — a
+    // resposta certa ali é "nenhum agente cobre este sinal", não gerar arquivos.
+    if (sinalBase.texto.trim() && !agente && await deveBootstrapar(root, config.bugAgents.dir)) {
+      const bootstrap = await runBootstrap({
+        root,
+        dir: config.bugAgents.dir,
+        guided: config.bugAgents.guided,
+        pergunta,
+      });
+      return { exitCode: 2, motivo, bootstrap, abertos: [], fechados: [] };
+    }
     return { exitCode: 2, motivo, abertos: [], fechados: [] };
   }
 
@@ -306,8 +336,27 @@ export async function runTriageBug({
   return { ...registro, exitCode: 0 };
 }
 
+/**
+ * Prompt do bootstrap. Sem TTY não há pergunta: `runBootstrap` cai no default
+ * (`n`) e nada é escrito — só `--yes` grava em não-interativo, nunca por omissão.
+ */
+async function perguntarNoTerminal(texto, padrao = '') {
+  if (!process.stdin.isTTY) return padrao;
+  const rl = createInterface({ input: process.stdin, output: process.stderr });
+  try {
+    return await rl.question(`${texto}${padrao ? ` [${padrao}]` : ''} `);
+  } finally {
+    rl.close();
+  }
+}
+
 async function main() {
-  const resultado = await runTriageBug({ root: process.cwd(), env: process.env, argv: process.argv.slice(2) });
+  const resultado = await runTriageBug({
+    root: process.cwd(),
+    env: process.env,
+    argv: process.argv.slice(2),
+    pergunta: perguntarNoTerminal,
+  });
   console.log(JSON.stringify(resultado, null, 2));
   process.exitCode = resultado.exitCode ?? 0;
 }
