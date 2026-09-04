@@ -23,6 +23,14 @@ async function fixture(initialScorecard) {
   const runner = join(root, 'fake-runner.mjs');
   await writeFile(runner, `#!/usr/bin/env node
 import { writeFile } from 'node:fs/promises';
+// A cadeia real grava .lms/veredito.json DURANTE a rodada (runFallback ->
+// registrarVeredito). O fake faz o mesmo: pre-escrever o arquivo antes do trigger
+// simularia um veredito VELHO, que e justamente o que P1-1 proibe propagar.
+if (process.env.LMS_TEST_RUNNER_VEREDITO) {
+  await writeFile(process.env.LMS_REVIEWER_ROOT + '/.lms/veredito.json', JSON.stringify({
+    estado: process.env.LMS_TEST_RUNNER_VEREDITO, reviewer: 'claude', refutador: 'grok',
+  }));
+}
 if (process.env.LMS_TEST_RUNNER_MODE === 'fail') process.exit(9);
 await writeFile(process.env.LMS_REVIEWER_ROOT + '/.lms/last.json', JSON.stringify({
   reviewer: 'grok', score: 5, target: 5, base: 'HEAD~1', p0: 0, p1: 0, p2: 0,
@@ -223,13 +231,64 @@ test('cadeia que morre sem gravar veredito sai 1 com estado timeout (Task 10)', 
 test('veredito gravado pelo runner e o que o trigger propaga (Task 10)', async () => {
   const { root, runner } = await fixture({ reviewer: 'grok', score: 2 });
   try {
-    await writeFile(
-      join(root, '.lms', 'veredito.json'),
-      JSON.stringify({ estado: 'refuted', reviewer: 'claude', refutador: 'grok' }),
-    );
-    const r = await runTrigger({ root, runner, extraEnv: { LMS_TEST_RUNNER_MODE: 'fail' } });
+    const r = await runTrigger({
+      root,
+      runner,
+      extraEnv: { LMS_TEST_RUNNER_MODE: 'fail', LMS_TEST_RUNNER_VEREDITO: 'refuted' },
+    });
     assert.equal(r.code, 1);
     assert.equal(ultimaLinha(r.stderr), 'LMS VEREDITO: refuted');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// P1-1 da revisao da Fase 5: `finalizar` sem argumento lia o estado de um
+// veredito.json que NUNCA era invalidado. Rodada aceita no passado deixava um
+// arquivo que autorizava a falha seguinte — bypass do gate sem LMS_SKIP, sem
+// --no-verify e sem intencao do usuario.
+test('veredito accepted VELHO nao libera push quando o gate reprova (P1-1)', async () => {
+  const { root, runner } = await fixture({ reviewer: 'grok', score: 2 });
+  try {
+    await writeFile(
+      join(root, '.lms', 'veredito.json'),
+      JSON.stringify({ estado: 'accepted', reviewer: 'claude', score: 5 }),
+    );
+    const r = await runTrigger({ root, runner, extraEnv: { LMS_TEST_RUNNER_MODE: 'fail' } });
+    assert.equal(r.code, 1, 'aceite de rodada anterior NUNCA autoriza a rodada atual');
+    assert.notEqual(ultimaLinha(r.stderr), 'LMS VEREDITO: accepted');
+    const veredito = JSON.parse(await readFile(join(root, '.lms', 'veredito.json'), 'utf8'));
+    assert.notEqual(veredito.estado, 'accepted', 'o arquivo velho nao sobrevive a rodada');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// P2-3 da revisao da Fase 5: a guarda `[ ! -f ]` nunca corrigia arquivo velho, e
+// quem esperava em `until [ -f .lms/veredito.json ]` lia o desfecho da rodada
+// ANTERIOR — o mesmo prejuizo que a Task 10 existia para eliminar.
+test('veredito do trigger reflete a rodada atual, nao a anterior (P2-3)', async () => {
+  const { root, runner } = await fixture({
+    reviewer: 'grok', score: 5, target: 5, base: 'HEAD~1', p0: 0, p1: 0, p2: 0,
+    lenses: {
+      'code-safety': { p0: 0, p1: 0, p2: 0 },
+      'code-structure': { p0: 0, p1: 0, p2: 0 },
+      'code-quality': { p0: 0, p1: 0, p2: 0 },
+      'code-efficiency': { p0: 0, p1: 0, p2: 0 },
+    }, at: new Date().toISOString(), autonomy: 'reviewer', fallow: 'pass', coverage: [{ surface: 'arquivos alterados', total: 3, inspected: 3 }], verified: [{ claim: 'o modulo exporta a constante citada', path: 'a.ts', line: 1, quote: 'export const citado = 42; // linha citada verbatim' }],
+    inspected: [{ path: 'a.ts', line: 1, quote: 'export const citado = 42; // linha citada verbatim' }],
+  });
+  try {
+    await writeFile(
+      join(root, '.lms', 'veredito.json'),
+      JSON.stringify({ estado: 'rejected', reviewer: 'codex' }),
+    );
+    const r = await runTrigger({ root, runner, extraEnv: { LMS_TEST_RUNNER_MODE: 'fail' } });
+    assert.equal(r.code, 0);
+    assert.equal(ultimaLinha(r.stderr), 'LMS VEREDITO: accepted');
+    const veredito = JSON.parse(await readFile(join(root, '.lms', 'veredito.json'), 'utf8'));
+    assert.equal(veredito.estado, 'accepted', 'quem espera precisa ler o desfecho DESTA rodada');
+    assert.equal(veredito.reviewer, null, 'nada da rodada anterior vaza');
   } finally {
     await rm(root, { recursive: true, force: true });
   }

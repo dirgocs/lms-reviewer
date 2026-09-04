@@ -105,25 +105,41 @@ scorecard_ok() {
 # ficaram HORAS paradas "aguardando veredito" com a cadeia ja fechada.
 VEREDITO_FILE="$ROOT/.lms/veredito.json"
 
+# P1-1 da revisao da Fase 5: o veredito e o desfecho DESTA rodada, nao um lock.
+# Ele nunca era invalidado, entao uma rodada aceita no passado deixava um arquivo
+# que autorizava a falha seguinte — bypass do gate sem LMS_SKIP e sem intencao do
+# usuario. A rodada comeca apagando o desfecho da anterior (mesmo principio do
+# `rm` no inicio de runFallback).
+rm -f "$VEREDITO_FILE"
+
 veredito_estado() {
   [ -f "$VEREDITO_FILE" ] || return 1
   sed -n 's/.*"estado"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$VEREDITO_FILE" | head -1
 }
 
-# Sai nomeando o estado. Sem veredito gravado o estado e `timeout` — fail-closed:
-# cadeia que morre sem gravar nao vira aceite por omissao.
+# Sai nomeando o estado. Duas fontes, com pesos diferentes:
+#
+# - COM argumento: o proprio trigger julgou (scorecard validado). E a UNICA forma
+#   de chegar em `accepted`.
+# - SEM argumento: a cadeia rodou e nao autorizou; o estado vem do que o runner
+#   gravou nesta rodada. `accepted` aqui seria contradicao (o scorecard nao passou
+#   na validacao logo acima), entao vira `timeout` — fail-closed.
+#
+# O arquivo e SEMPRE reescrito com o estado final (P2-3): a guarda anterior so
+# gravava quando o arquivo faltava, e quem esperava em
+# `until [ -f .lms/veredito.json ]` lia o desfecho da rodada ANTERIOR.
 finalizar() {
   estado="${1:-}"
   if [ -z "$estado" ]; then
     estado="$(veredito_estado)" || estado=""
+    # Sem argumento nunca se deriva aceite: quem autoriza e o scorecard validado.
+    [ "$estado" = "accepted" ] && estado="timeout"
   fi
   [ -n "$estado" ] || estado="timeout"
 
-  if [ ! -f "$VEREDITO_FILE" ]; then
-    mkdir -p "$ROOT/.lms"
-    printf '{\n  "estado": "%s",\n  "score": null,\n  "reviewer": null,\n  "refutador": null,\n  "subject": null,\n  "at": "%s"\n}\n' \
-      "$estado" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$VEREDITO_FILE"
-  fi
+  mkdir -p "$ROOT/.lms"
+  printf '{\n  "estado": "%s",\n  "score": null,\n  "reviewer": null,\n  "refutador": null,\n  "subject": null,\n  "at": "%s"\n}\n' \
+    "$estado" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$VEREDITO_FILE"
 
   echo "LMS VEREDITO: $estado" >&2
   if [ "$estado" = "accepted" ]; then exit 0; fi
