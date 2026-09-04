@@ -8,6 +8,23 @@ O que conta como *breaking* aqui: mudar o schema do scorecard, o contrato de
 gate. **Afrouxar o gate é breaking mesmo que nada quebre tecnicamente** — quem instalou
 isto instalou o rigor, e um gate que passa a deixar passar é uma regressão silenciosa.
 
+## [1.4.2] - 2026-09-04
+
+Patch: um defeito do 1.4.1 visto no KDT-68.
+
+### Corrigido
+
+- **O desfecho da cadeia era apagado por uma falha do gate.** Cadeia que terminou
+  `grok timeout → claude accepted score=5 → claude upheld` gravou
+  `{estado:'timeout', tudo null}`. O `runFallback` estava certo — quem reescrevia
+  era o `lms-trigger`: quando a cadeia fechava aceita mas o scorecard não passava
+  na validação do gate, o aceite virava `timeout` com todos os campos nulos.
+  Autorização e veredito passam a ser coisas separadas: **a autorização continua
+  vindo só do scorecard validado** (aceite lido de arquivo nunca libera push, a
+  trava de 1.4.0 segue valendo), e **o veredito é o desfecho da cadeia**, que
+  sobrevive ao gate reprovado com os campos que a cadeia preencheu. O trigger só
+  escreve `timeout` quando a cadeia morre sem gravar nada.
+
 ## [1.4.1] - 2026-09-04
 
 Patch: dois defeitos do 1.4.0 vistos em produção.
