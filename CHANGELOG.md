@@ -61,6 +61,35 @@ versionada no repo consumidor. Spec e plano em
 
 ### Corrigido
 
+- **O gate não é liberado por veredito de rodada anterior.** `.lms/veredito.json`
+  nunca era invalidado, e `lms-trigger` derivava dele o código de saída: uma rodada
+  aceita no passado autorizava a falha seguinte (scorecard stale + cadeia falhando
+  saíam com exit 0). Agora a rodada começa apagando o desfecho da anterior, e o
+  aceite só vem do scorecard validado — nunca do arquivo. **Se você depende do
+  arquivo, note que ele passou a ser reescrito em todo desfecho**, em vez de só
+  quando faltava, então quem espera lê a rodada atual e não a anterior.
+- **`lms-triage-bug --init` não sobrescreve mais agente existente**: escreve só nome
+  novo e nomeia os pulados. `--force` é a única forma de regravar — o arquivo
+  gerado tem `verificar_antes_de_abrir_issue` vazio, e regravar apagava a verdade
+  de domínio escrita à mão.
+- **Padrão vazio em `match` deixa de ser curinga.** `new RegExp('')` casa qualquer
+  string, então um `- ""` em `match.sinal`/`paths` fazia o agente vencer todos os
+  outros. Agora descarta o agente com aviso.
+- **O `LINEAR_API_KEY` não fica mais no `/tmp`.** O arquivo de header com o token
+  não era apagado, nem no sucesso nem no erro; agora morre num `finally`. Mensagem
+  de erro de ferramenta passa por redação antes de ir para stderr e para
+  `.lms/bug-<id>.json`.
+- **`path` do achado é conferido no disco, com linha** (`conferirPathNoDisco`): a
+  spec prometia a recusa de linha inexistente, mas nada conferia —
+  `citationsDiskError` exige que a quote case o arquivo, e a quote da triagem vem
+  do log, não do código. Caminho com `..` que sai da raiz também é recusado, no
+  achado e no que entra no prompt.
+- **`lms-eval --bugs` mede o pipeline de produção**: o relato passa por
+  `achadoDoSinal` antes de contar acerto de localização; recusa vira caso
+  reprovado. Antes, um `path` que a triagem real rejeitaria contava como acerto.
+- Relato que não vira achado do contrato agora é recusa nomeada, não exceção não
+  tratada; e um typo na primeira pergunta do `--guided` cancela em vez de escrever
+  todas as propostas em silêncio.
 - `lms-eval` apontava o corpus para `<raiz>/casos`, que nunca existiu (o corpus
   mora em `evals/casos`): `pnpm lms:eval` morria com "corpus de eval ausente".
 - `lms-triage-bug` prometia entrada por stdin mas só lia sinal de arquivo.
