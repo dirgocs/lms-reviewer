@@ -8,6 +8,32 @@ O que conta como *breaking* aqui: mudar o schema do scorecard, o contrato de
 gate. **Afrouxar o gate é breaking mesmo que nada quebre tecnicamente** — quem instalou
 isto instalou o rigor, e um gate que passa a deixar passar é uma regressão silenciosa.
 
+## [1.4.1] - 2026-09-04
+
+Patch: dois defeitos do 1.4.0 vistos em produção.
+
+### Corrigido
+
+- **`.lms/veredito.json` saía com `score`, `reviewer`, `refutador` e `subject`
+  nulos em todos os estados** — quem espera o arquivo descobria o estado e nada
+  mais. Duas causas: o `lms-trigger` reescrevia por cima do veredito rico que o
+  runner acabara de gravar na mesma rodada (agora preserva quando o estado bate, e
+  só reescreve quando discorda — a trava contra veredito de rodada anterior fica
+  intacta), e o desfecho refutado não dizia de quem era o 5/5 derrubado. Cada
+  estado passa a carregar o que a cadeia sabe: aceite leva revisor, contestador e
+  score; refutado leva quem foi derrubado, quem derrubou e o score que caiu;
+  reprovado nomeia quem reprovou; timeout e `invalid-output` preservam o subject.
+- **Achados chegavam sem `id`, e `pnpm lms:reverificar` não tinha como ser usado.**
+  O id é derivado (`findingId`), nunca julgado pelo modelo: agora é preenchido
+  quando ausente ao gravar `.lms/candidates/<provider>.json` (reescrito no disco,
+  porque é o único artefato quando a rodada é derrubada) e `.lms/last.json`; id já
+  presente é preservado.
+- **`lms-reverificar` ganhou seletores.** Antes re-verificava todo achado
+  `CONFIRMED` e ignorava argumentos. Aceita `id`, o par `path:linha` e o `path`
+  sozinho; sem argumento, o comportamento anterior. Seletor que não casa **recusa a
+  rodada nomeando o seletor**, em vez de devolver "nada a fazer" — que quem pediu
+  leria como "o achado fechou".
+
 ## [1.4.0] - 2026-09-04
 
 Fase 5: entrada para o que chega de runtime, com a inteligência de domínio

@@ -9,7 +9,7 @@ const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 const skill = readFileSync(join(root, 'skills/local-merge-score/SKILL.md'), 'utf8');
 
 test('v1.4 expoe todos os comandos usados pelo consumidor', () => {
-  assert.equal(pkg.version, '1.4.0');
+  assert.equal(pkg.version, '1.4.1');
   assert.deepEqual(pkg.bin, {
     'lms-trigger': './scripts/lms-reviewer-trigger.sh',
     'lms-reviewer': './scripts/lms-reviewer-spawn.sh',
@@ -91,6 +91,7 @@ test('README e SKILL documentam a triagem de bug (Task 9)', () => {
 
 test('CHANGELOG registra a 1.4.0 com a triagem de bug (Task 9)', () => {
   const changelog = readFileSync(join(root, 'CHANGELOG.md'), 'utf8');
+  assert.match(changelog, /## \[1\.4\.1\]/);
   assert.match(changelog, /## \[1\.4\.0\]/);
   assert.match(changelog, /lms-triage-bug/);
 });

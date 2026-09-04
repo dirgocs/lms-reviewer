@@ -1,6 +1,6 @@
 {
   "name": "@dirgocs/lms-reviewer",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "private": true,
   "type": "module",
   "description": "Gate de push bloqueante: cadeia de revisores headless (Claude/Grok/Codex) com scorecard verificado contra o disco",

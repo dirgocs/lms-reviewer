@@ -588,6 +588,19 @@ revisor abriu custa 15–30 min; re-verificar custa 2–5. O runner devolve ao *
 revisor que abriu o achado** (`found_by`) uma pergunta estreita: *estes ids continuam
 abertos?*
 
+Seletores (1.4.1): sem argumento, re-verifica todo achado `CONFIRMED`. Com
+argumento, aceita o `id`, o par `path:linha` ou o `path` sozinho — o seletor que
+você tem na mão ao ler o achado:
+
+```bash
+pnpm lms:reverificar                          # todos os CONFIRMED
+pnpm lms:reverificar aaa111 bbb222            # por id
+pnpm lms:reverificar services/api/x.ts:42     # por path:linha
+```
+
+Seletor que não casa nenhum achado `CONFIRMED` **recusa a rodada nomeando o
+seletor** — devolver "nada a fazer" seria lido como "o achado fechou".
+
 Fail-closed em todo caminho: id ausente ou desconhecido na resposta = `open`; `closed`
 só vale depois de o verificador da Fase 2 não o derrubar; `LMS_VERIFY=0` desliga a
 re-verificação inteira (fechar sem contraditório é o buraco). E NUNCA mexe em
