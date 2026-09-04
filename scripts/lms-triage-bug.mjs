@@ -245,6 +245,8 @@ export async function runTriageBug({
       dir: config.bugAgents.dir,
       guided: argv.includes('--guided') || config.bugAgents.guided,
       yes: argv.includes('--yes'),
+      // P1-2: sobrescrever agente existente exige --force explicito.
+      force: argv.includes('--force'),
       pergunta,
     });
     return { exitCode: 0, bootstrap, abertos: [], fechados: [] };

@@ -174,7 +174,10 @@ test('runTriageBug: --init roda o bootstrap e nao tria (Task 5)', async () => {
   });
   assert.equal(r.exitCode, 0);
   assert.equal(triou, false, '--init nao tria sinal nenhum');
-  assert.ok(r.bootstrap.escritos >= 1, 'o bootstrap escreveu agentes');
+  // P1-2: o fixture ja tem `workers.md` commitado, entao a proposta homonima e
+  // PULADA em vez de regravada — `--init` nunca apaga o que o consumidor escreveu.
+  assert.ok(r.bootstrap.pulados.includes('workers.md'), 'agente existente e pulado, nao sobrescrito');
+  assert.equal(r.bootstrap.escritos, 0);
 });
 
 test('runTriageBug: auto-init com diretorio ausente propoe agentes (Task 5)', async () => {

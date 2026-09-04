@@ -17,7 +17,7 @@
  * propósito: inventá-la seria embutir inteligência de domínio no gate.
  */
 import { execFile as execFileCallback } from 'node:child_process';
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { access, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -335,6 +335,15 @@ export async function deveBootstrapar(root, dir = '.agents/bug-triage') {
 
 const CONFIRMACOES = new Set(['y', 'yes', 's', 'sim']);
 
+async function existe(caminho) {
+  try {
+    await access(caminho);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * `pergunta(texto, default)` é injetável: teste sem TTY. Resposta vazia = default.
  * Autônomo (`yes: true`) não pergunta nada e grava.
@@ -344,12 +353,13 @@ export async function runBootstrap({
   dir = '.agents/bug-triage',
   guided = false,
   yes = false,
+  force = false,
   pergunta,
 } = {}) {
   const propostasIniciais = proporAgentes(await varrerRepo(root));
   if (propostasIniciais.length === 0) {
     console.error('lms-bug-bootstrap: nada a propor — repo sem superfície reconhecida');
-    return { propostas: [], escritos: 0, confirmado: false };
+    return { propostas: [], escritos: 0, pulados: [], confirmado: false };
   }
 
   const perguntar = async (texto, padrao = '') => {
@@ -416,14 +426,38 @@ export async function runBootstrap({
 
   if (!confirmado) {
     console.error('lms-bug-bootstrap: nada escrito');
-    return { propostas, escritos: 0, confirmado: false };
+    return { propostas, escritos: 0, pulados: [], confirmado: false };
   }
 
   const pasta = join(root, dir);
   await mkdir(pasta, { recursive: true });
+
+  // P1-2 da revisao da Fase 5: NUNCA escrever por cima de agente que ja existe.
+  // O arquivo gerado sai com `verificar_antes_de_abrir_issue` vazio — e a verdade
+  // de dominio que so o consumidor tem —, entao regravar apaga exatamente o que
+  // nao da para recuperar. Escreve so nome novo; `--force` e a unica forma de
+  // sobrescrever, e e explicita.
+  const escritos = [];
+  const pulados = [];
   for (const proposta of propostas) {
-    await writeFile(join(pasta, `${proposta.nome}.md`), renderizarAgente(proposta), 'utf8');
+    const arquivo = join(pasta, `${proposta.nome}.md`);
+    if (!force && await existe(arquivo)) {
+      pulados.push(`${proposta.nome}.md`);
+      continue;
+    }
+    await writeFile(arquivo, renderizarAgente(proposta), 'utf8');
+    escritos.push(`${proposta.nome}.md`);
   }
-  console.error(`lms-bug-bootstrap: nada roda até você commitar estes arquivos (${dir}/)`);
-  return { propostas, escritos: propostas.length, confirmado: true };
+
+  if (pulados.length) {
+    console.error(
+      `lms-bug-bootstrap: ${pulados.length} agente(s) ja existiam e foram PULADOS `
+      + `(${pulados.join(', ')}) — use --force para sobrescrever, ciente de que isso `
+      + 'apaga o verificar_antes_de_abrir_issue escrito a mao',
+    );
+  }
+  if (escritos.length) {
+    console.error(`lms-bug-bootstrap: nada roda até você commitar estes arquivos (${dir}/)`);
+  }
+  return { propostas, escritos: escritos.length, pulados, confirmado: true };
 }

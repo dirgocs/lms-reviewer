@@ -288,3 +288,65 @@ test('proposta com checklist preenchido sai ativa (Ajuste 1+2)', async () => {
   assert.equal(agente.status, 'ativo', 'checklist preenchido = ativo');
   await rm(root, { recursive: true, force: true });
 });
+
+// P1-2 da revisao da Fase 5: `--init` nao tinha guarda nenhuma (a de "nao gerar
+// por cima" so existia no auto-init) e `renderizarAgente` emite
+// `verificar_antes_de_abrir_issue` vazio — justamente a verdade que so o
+// consumidor tem. Rodar `--init` de novo apagava o checklist escrito a mao.
+async function repoComAgenteArtesanal() {
+  const root = await repoBootstrap();
+  const pasta = join(root, '.agents/bug-triage');
+  await mkdir(pasta, { recursive: true });
+  const [proposta] = proporAgentes(await varrerRepo(root));
+  await writeFile(
+    join(pasta, `${proposta.nome}.md`),
+    [
+      '---', `nome: ${proposta.nome}`, 'descricao: escrito a mao', 'status: ativo',
+      'match:', '  paths:', '    - "^services/workers/"',
+      'verificar_antes_de_abrir_issue:',
+      '    - "conferir o piso de retry na fila antes de culpar o codigo"',
+      '---', '', 'Triagem artesanal.', '',
+    ].join('\n'),
+    'utf8',
+  );
+  await execFile('git', ['add', '.'], { cwd: root });
+  await execFile('git', ['commit', '-qm', 'agente artesanal'], { cwd: root });
+  return { root, nome: proposta.nome };
+}
+
+test('bootstrap nao sobrescreve agente existente (P1-2)', async () => {
+  const { root, nome } = await repoComAgenteArtesanal();
+  const resultado = await runBootstrap({ root, guided: false, yes: true });
+
+  const texto = await readFile(join(root, '.agents/bug-triage', `${nome}.md`), 'utf8');
+  assert.match(texto, /conferir o piso de retry/, 'a verdade de dominio escrita a mao sobrevive');
+  assert.match(texto, /Triagem artesanal/, 'o corpo do consumidor sobrevive');
+  assert.ok(resultado.pulados.includes(`${nome}.md`), 'o pulado e nomeado, nao silencioso');
+  await rm(root, { recursive: true, force: true });
+});
+
+test('bootstrap escreve so o nome novo, ao lado do que ja existe (P1-2)', async () => {
+  const { root, nome } = await repoComAgenteArtesanal();
+  const resultado = await runBootstrap({ root, guided: false, yes: true });
+
+  const agentes = await carregarAgentes(root, '.agents/bug-triage');
+  const nomes = agentes.map((a) => a.nome);
+  assert.ok(nomes.includes(nome), 'o existente continua la');
+  assert.equal(
+    resultado.escritos + resultado.pulados.length,
+    resultado.propostas.length,
+    'toda proposta ou foi escrita ou foi pulada com nome',
+  );
+  for (const escrito of resultado.escritos ? nomes : []) assert.ok(escrito);
+  await rm(root, { recursive: true, force: true });
+});
+
+test('--force sobrescreve, mas so quando pedido explicitamente (P1-2)', async () => {
+  const { root, nome } = await repoComAgenteArtesanal();
+  const resultado = await runBootstrap({ root, guided: false, yes: true, force: true });
+
+  const texto = await readFile(join(root, '.agents/bug-triage', `${nome}.md`), 'utf8');
+  assert.doesNotMatch(texto, /Triagem artesanal/, '--force explicito regrava');
+  assert.equal(resultado.pulados.length, 0);
+  await rm(root, { recursive: true, force: true });
+});
