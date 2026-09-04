@@ -1,0 +1,7 @@
+{
+  "agente": "erp-web-pos",
+  "path": "apps/erp-web/src/pos/preview.tsx",
+  "lens": "product-correctness",
+  "severity": "P1",
+  "nao_deve": ["problema de estilo", "apenas cosmetico"]
+}

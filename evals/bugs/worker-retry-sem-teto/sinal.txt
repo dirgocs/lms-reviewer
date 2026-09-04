@@ -1,0 +1,8 @@
+[2026-08-14T03:12:44Z] worker.emissao ERROR task=emitir_nota tentativa=847
+Traceback (most recent call last):
+  File "services/fiscal/backend/app/workers/emissao.py", line 118, in emitir
+    resposta = cliente.transmitir(lote)
+  File "services/fiscal/backend/app/services/transmissao.py", line 62, in transmitir
+    raise TransmissaoError(f"rejeicao {codigo}")
+TransmissaoError: rejeicao 656
+[2026-08-14T03:12:44Z] worker.emissao INFO reagendando em 0s (tentativa 848)

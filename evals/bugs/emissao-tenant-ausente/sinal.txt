@@ -1,0 +1,5 @@
+HTTP 500 POST /api/pos/emissao
+{"erro":"IntegrityError","detalhe":"emissao de nota para tenant divergente do token"}
+  at consultarPendentes (services/api/src/pos/emissao.ts:73)
+  at handler (services/api/src/pos/rotas.ts:41)
+tenant_token=<redigido> tenant_registro=<redigido>

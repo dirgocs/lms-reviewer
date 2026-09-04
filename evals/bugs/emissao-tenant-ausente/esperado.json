@@ -1,0 +1,7 @@
+{
+  "agente": "api-pos",
+  "path": "services/api/src/pos/emissao.ts",
+  "lens": "code-safety",
+  "severity": "P1",
+  "nao_deve": ["rate limit", "DoS", "exaustao de recurso"]
+}

@@ -1,0 +1,7 @@
+{
+  "agente": "fiscal-workers",
+  "path": "services/fiscal/backend/app/workers/emissao.py",
+  "lens": "code-safety",
+  "severity": "P1",
+  "nao_deve": ["certificado expirado", "certificado A1 vencido"]
+}

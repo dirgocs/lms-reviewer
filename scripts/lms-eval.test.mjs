@@ -5,7 +5,15 @@ import { tmpdir } from 'node:os';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { abaixoDosPisos, carregarCasos, compararAchados, runEval } from './lms-eval.mjs';
+import {
+  abaixoDosPisos,
+  abaixoDosPisosBug,
+  carregarCasos,
+  compararAchados,
+  compararTriagem,
+  runEval,
+  runEvalBugs,
+} from './lms-eval.mjs';
 
 const raiz = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -92,4 +100,113 @@ test('runEval roda o provider por caso e compara (Task 7)', async () => {
   assert.equal(r.casos, 1);
   assert.equal(r.recall_p1, 1);
   assert.equal(r.taxa_fp, 0);
+});
+
+// Task 8 da Fase 5: régua de TRIAGEM. `carregarCasos` deixa de fixar
+// `casos/patch.diff`, e o corpus de bugs mede acerto de match de agente e de
+// localização — o corpus de revisão continua carregando igual.
+test('carregarCasos parametrizado nao quebra o corpus de revisao (Task 8)', async () => {
+  const padrao = await carregarCasos(join(raiz, 'evals'));
+  const explicito = await carregarCasos(join(raiz, 'evals'), {
+    sub: 'casos', arquivo: 'patch.diff', campo: 'patch',
+  });
+  assert.deepEqual(explicito.map((c) => c.slug), padrao.map((c) => c.slug));
+  assert.equal(explicito[0].patch, padrao[0].patch);
+});
+
+test('carregarCasos le o corpus de bugs com sinal.txt (Task 8)', async () => {
+  const bugs = await carregarCasos(join(raiz, 'evals'), {
+    sub: 'bugs', arquivo: 'sinal.txt', campo: 'sinal',
+  });
+  assert.equal(bugs.length, 3, 'o corpus de bugs tem 3 casos curados');
+  for (const caso of bugs) {
+    assert.ok(caso.sinal.length > 0, 'o sinal e o insumo da triagem');
+    assert.ok(caso.esperado.agente, 'esperado nomeia o agente que deveria casar');
+    assert.ok(caso.esperado.path, 'esperado nomeia a localizacao');
+    assert.ok(Array.isArray(caso.esperado.nao_deve));
+  }
+});
+
+test('corpus de bugs vazio e erro (Task 8)', async () => {
+  const vazio = await mkdtemp(join(tmpdir(), 'lms-eval-bugs-vazio-'));
+  await mkdir(join(vazio, 'bugs'), { recursive: true });
+  await assert.rejects(
+    () => carregarCasos(vazio, { sub: 'bugs', arquivo: 'sinal.txt', campo: 'sinal' }),
+    /nenhum caso/i,
+  );
+});
+
+test('compararTriagem: acerto de match e de localizacao; nao_deve reprova (Task 8)', () => {
+  const esperado = { agente: 'workers', path: 'workers/x.py', nao_deve: ['certificado expirado'] };
+
+  const cheio = compararTriagem(esperado, {
+    agente: 'workers',
+    achado: { path: 'workers/x.py:2', why: 'o retry nao tem teto' },
+  });
+  assert.equal(cheio.match, 1, 'agente esperado casou');
+  assert.equal(cheio.path, 1, 'path-sem-linha bate');
+  assert.equal(cheio.nao_deve, 0);
+
+  const erradoDeAgente = compararTriagem(esperado, {
+    agente: 'api',
+    achado: { path: 'workers/x.py:2', why: 'o retry nao tem teto' },
+  });
+  assert.equal(erradoDeAgente.match, 0);
+  assert.equal(erradoDeAgente.path, 1, 'localizacao e medida separada do match');
+
+  const proibido = compararTriagem(esperado, {
+    agente: 'workers',
+    achado: { path: 'workers/x.py:2', why: 'o certificado expirado derrubou o worker' },
+  });
+  assert.equal(proibido.nao_deve, 1, 'citar o nao_deve reprova, como fp_conhecidos');
+
+  const semAchado = compararTriagem(esperado, { agente: null, achado: null });
+  assert.equal(semAchado.match, 0);
+  assert.equal(semAchado.path, 0);
+});
+
+test('abaixoDosPisosBug: pisos por env com defaults 0.8/0.6 (Task 8)', () => {
+  assert.equal(abaixoDosPisosBug({ match: 0.8, path: 0.6 }, {}), false);
+  assert.equal(abaixoDosPisosBug({ match: 0.7, path: 0.9 }, {}), true, 'match abaixo de 0.8');
+  assert.equal(abaixoDosPisosBug({ match: 1, path: 0.5 }, {}), true, 'path abaixo de 0.6');
+  assert.equal(
+    abaixoDosPisosBug({ match: 0.5, path: 0.5 }, { LMS_EVAL_BUG_MATCH_MIN: '0.4', LMS_EVAL_BUG_PATH_MIN: '0.4' }),
+    false,
+    'pisos configuraveis por env',
+  );
+});
+
+test('runEvalBugs tria cada sinal contra os agentes do repo sob teste (Task 8)', async () => {
+  // Repo sob teste: os agentes sao do consumidor, nunca do pacote.
+  const root = await mkdtemp(join(tmpdir(), 'lms-eval-bugs-'));
+  await mkdir(join(root, 'workers'), { recursive: true });
+  await writeFile(join(root, 'workers', 'x.py'), 'linha1\nlinha2\n');
+  await mkdir(join(root, '.agents/bug-triage'), { recursive: true });
+  await writeFile(
+    join(root, '.agents/bug-triage', 'workers.md'),
+    '---\nnome: workers\ndescricao: workers\nmatch:\n  paths:\n    - "^workers/"\n---\n\nTriar workers.\n',
+  );
+
+  const corpus = await mkdtemp(join(tmpdir(), 'lms-eval-corpus-'));
+  await mkdir(join(corpus, 'bugs', 'worker-sem-teto'), { recursive: true });
+  await writeFile(join(corpus, 'bugs', 'worker-sem-teto', 'sinal.txt'), 'HTTP 500 em workers/x.py:2\n');
+  await writeFile(
+    join(corpus, 'bugs', 'worker-sem-teto', 'esperado.json'),
+    JSON.stringify({ agente: 'workers', path: 'workers/x.py', lens: 'code-safety', severity: 'P1', nao_deve: [] }),
+  );
+
+  const resultado = await runEvalBugs({
+    dir: corpus,
+    root,
+    env: {},
+    collect: async () => ({
+      kind: 'ok',
+      candidate: { path: 'workers/x.py:2', lens: 'code-safety', title: 'retry sem teto', why: 'o stack cita workers/x.py:2' },
+    }),
+  });
+
+  assert.equal(resultado.casos, 1);
+  assert.equal(resultado.match, 1, 'o agente esperado casou');
+  assert.equal(resultado.path, 1, 'a localizacao bate');
+  assert.equal(resultado.por_caso[0].slug, 'worker-sem-teto');
 });

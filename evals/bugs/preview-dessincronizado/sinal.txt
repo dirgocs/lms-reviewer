@@ -1,0 +1,5 @@
+Relato de suporte (anonimizado): o preview do cupom mostra total sem o desconto,
+mas a nota emitida sai com o desconto aplicado. Reproduzido duas vezes.
+Console do app:
+  Warning: total divergente preview=12000 emitido=10800
+  at montarPreview (apps/erp-web/src/pos/preview.tsx:54)
