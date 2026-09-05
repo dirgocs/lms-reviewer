@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { effortPara } from './lms-effort.mjs';
+import { effortPara, effortValido } from './lms-effort.mjs';
 
 test('diff comum revisa em high', () => {
   assert.equal(effortPara(['apps/erp-web/src/components/ui/button.tsx'], {}), 'high');
@@ -36,4 +36,39 @@ test('papel define o effort do claude (P2-1)', async () => {
     claudeEffort: 'medium',
   });
   assert.equal(refutador.args[refutador.args.indexOf('--effort') + 1], 'medium');
+});
+
+// 1.4.3 (politica do Master, 2026-09-05): Grok encerrado; effort por complexidade
+// low|medium|high|xhigh, NUNCA max. `max` e rejeitado com mensagem, nao aceito em
+// silencio nem propagado ao CLI.
+test('LMS_EFFORT aceita low (1.4.3)', () => {
+  assert.equal(effortPara(['a.ts'], { LMS_EFFORT: 'low' }), 'low');
+});
+
+test('effortValido normaliza e recusa max nomeando a env (1.4.3)', () => {
+  const avisos = [];
+  const original = console.error;
+  console.error = (m) => avisos.push(String(m));
+  try {
+    assert.equal(effortValido('high', 'LMS_CODEX_EFFORT'), 'high');
+    assert.equal(effortValido('  XHigh ', 'LMS_CODEX_EFFORT'), 'xhigh', 'trim e case');
+    assert.equal(effortValido('max', 'LMS_CODEX_EFFORT'), null, 'max nunca passa');
+    assert.equal(effortValido('turbo', 'LMS_EFFORT'), null);
+    assert.equal(effortValido(undefined, 'LMS_EFFORT'), null);
+  } finally {
+    console.error = original;
+  }
+  assert.ok(avisos.some((a) => /LMS_CODEX_EFFORT/.test(a) && /max/.test(a)), 'a env e nomeada');
+  assert.ok(avisos.some((a) => /low\|medium\|high\|xhigh|low, medium, high, xhigh/.test(a)), 'diz o que vale');
+});
+
+test('LMS_EFFORT=max nao vira effort: cai no default do raio (1.4.3)', () => {
+  const original = console.error;
+  console.error = () => {};
+  try {
+    assert.equal(effortPara(['a.ts'], { LMS_EFFORT: 'max' }), 'high');
+    assert.equal(effortPara(['services/fiscal/x.py'], { LMS_EFFORT: 'max' }), 'xhigh');
+  } finally {
+    console.error = original;
+  }
 });

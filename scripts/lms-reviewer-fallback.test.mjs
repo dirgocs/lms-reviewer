@@ -12,6 +12,8 @@ import {
   providerConfig,
   reportarDesfecho,
   retryPrompt,
+  escolherRefutador,
+  authorProvider,
   runFallback,
   registrarVeredito,
   camposDoVeredito,
@@ -630,14 +632,14 @@ async function jsonl(root, arquivo) {
 
 test('builds exact High commands for all providers', () => {
   const config = providerConfig({
-    LMS_CLAUDE_MODEL: 'claude-opus-4-8',
+    LMS_CLAUDE_MODEL: 'claude-opus-5',
     LMS_GROK_MODEL: 'grok-4.6',
     LMS_CODEX_MODEL: 'gpt-5.6-sol',
   });
 
   assert.deepEqual(commandFor('claude', { ...config, base, prompt: 'review' }).args, [
     '--model',
-    'claude-opus-4-8',
+    'claude-opus-5',
     '--effort',
     'high',
     '--print',
@@ -665,10 +667,11 @@ test('builds exact High commands for all providers', () => {
   ]);
   const codex = commandFor('codex', { ...config, base, prompt: 'review' });
   assert.equal(codex.args.includes('gpt-5.6-sol'), true);
-  // `xhigh` é o piso do revisor codex, e o padrão vem do código, não do ambiente:
-  // um deploy que esquecesse `LMS_CODEX_EFFORT` não pode rebaixar a revisão em
-  // silêncio.
-  assert.equal(codex.args.includes('model_reasoning_effort="xhigh"'), true);
+  // 1.4.3: o piso passou a `high` (politica do Master, 2026-09-05) — a
+  // profundidade acompanha a complexidade do diff em vez de ficar cravada no teto.
+  // O padrao continua vindo do codigo, nao do ambiente: um deploy que esquecesse
+  // `LMS_CODEX_EFFORT` nao pode mudar a revisao em silencio.
+  assert.equal(codex.args.includes('model_reasoning_effort="high"'), true);
   assert.equal(codex.args.includes('-'), false);
 });
 
@@ -919,7 +922,7 @@ test('cada invocacao registra telemetria completa dos dois estagios', async () =
     }
     assert.equal(revisor.estagio, 'reviewer');
     assert.equal(revisor.resultado, 'accepted');
-    assert.equal(revisor.modelo, 'claude-opus-4-8');
+    assert.equal(revisor.modelo, 'claude-opus-5');
     assert.equal(refutador.estagio, 'refutador');
     assert.equal(refutador.resultado, 'upheld');
     assert.equal(refutador.modelo, 'grok-4.6');
@@ -1978,4 +1981,101 @@ test('cadeia timeout -> timeout grava timeout (1.4.2)', async () => {
 
   const veredito = JSON.parse(await readFile(join(root, '.lms', 'veredito.json'), 'utf8'));
   assert.equal(veredito.estado, 'timeout', 'ninguem julgou: timeout e o desfecho de verdade');
+});
+
+// 1.4.3 (politica do Master, 2026-09-05): Grok encerrado. As lanes e o LMS rodam
+// Opus 5 + GPT-5.6 Sol; grok so entra se a env pedir explicitamente.
+test('ordem default e claude,codex — grok fora (1.4.3)', () => {
+  assert.deepEqual(providerConfig({}).order, ['claude', 'codex']);
+  assert.deepEqual(
+    providerConfig({ LMS_REVIEWER_ORDER: 'claude,grok,codex' }).order,
+    ['claude', 'grok', 'codex'],
+    'quem listar grok continua tendo grok',
+  );
+});
+
+test('modelo default do claude e opus-5 (1.4.3)', () => {
+  assert.equal(providerConfig({}).models.claude, 'claude-opus-5');
+});
+
+test('codexEffort default e high, e max e recusado (1.4.3)', () => {
+  assert.equal(providerConfig({}).codexEffort, 'high');
+  assert.equal(providerConfig({ LMS_CODEX_EFFORT: 'xhigh' }).codexEffort, 'xhigh');
+
+  const original = console.error;
+  const avisos = [];
+  console.error = (m) => avisos.push(String(m));
+  try {
+    assert.equal(providerConfig({ LMS_CODEX_EFFORT: 'max' }).codexEffort, 'high', 'max cai no default');
+    assert.equal(providerConfig({ LMS_CLAUDE_EFFORT: 'max' }).claudeEffort, undefined, 'max nao vira effort');
+  } finally {
+    console.error = original;
+  }
+  assert.ok(avisos.some((a) => /LMS_CODEX_EFFORT/.test(a)));
+  assert.ok(avisos.some((a) => /LMS_CLAUDE_EFFORT/.test(a)));
+});
+
+test('runner nao tenta provider ausente da ordem (1.4.3)', async () => {
+  const { root, env, scorecardValido } = await fixture();
+  const vistos = [];
+  const semGrok = { ...env };
+  delete semGrok.LMS_REVIEWER_ORDER; // volta ao default claude,codex
+  const collect = async ({ provider, prompt }) => {
+    vistos.push(provider);
+    if (prompt.includes('DEMOLISH')) {
+      return { kind: 'ok', candidate: { id: 'abc123', verdict: 'CONFIRMED', why: 'confere' } };
+    }
+    if (provider === 'claude') return { kind: 'ok', candidate: scorecardValido };
+    return { kind: 'ok', candidate: { refuted: false, confidence: 0, inspected: provaDeLeituraFixture } };
+  };
+  await runFallback({ root, base, env: semGrok, collect });
+  assert.equal(vistos.includes('grok'), false, 'grok fora da ordem nunca e invocado');
+  assert.ok(vistos.includes('claude'));
+});
+
+// 1.4.3: LMS_REFUTADOR fixa o refutador. Fail-closed: nao vale apontar o proprio
+// revisor sem a env de excecao, nem apontar quem nao rodou.
+test('LMS_REFUTADOR fixa o refutador (1.4.3)', () => {
+  const attempts = [{ provider: 'claude', result: 'accepted' }];
+  assert.equal(
+    escolherRefutador({ ordem: ['claude', 'codex'], attempts, provider: 'claude', autor: '', env: { LMS_REFUTADOR: 'codex' } }),
+    'codex',
+  );
+});
+
+test('LMS_REFUTADOR igual ao revisor exige a env de mesmo provider (1.4.3)', () => {
+  const attempts = [{ provider: 'claude', result: 'accepted' }];
+  const base = { ordem: ['claude', 'codex'], attempts, provider: 'claude', autor: '' };
+  assert.equal(
+    escolherRefutador({ ...base, env: { LMS_REFUTADOR: 'claude' } }),
+    undefined,
+    'apontar o proprio revisor sem a excecao explicita e sem-refutador',
+  );
+  assert.equal(
+    escolherRefutador({ ...base, env: { LMS_REFUTADOR: 'claude', LMS_REFUTADOR_MESMO_PROVIDER: '1' } }),
+    'claude',
+  );
+});
+
+test('LMS_REFUTADOR que nao rodou nao e usado (1.4.3)', () => {
+  const attempts = [
+    { provider: 'claude', result: 'accepted' },
+    { provider: 'codex', result: 'timeout' },
+  ];
+  assert.equal(
+    escolherRefutador({ ordem: ['claude', 'codex'], attempts, provider: 'claude', autor: '', env: { LMS_REFUTADOR: 'codex' } }),
+    undefined,
+    'quem estourou o teto nao vira refutador so porque a env pediu',
+  );
+});
+
+// 1.4.3: os apelidos dos modelos viram provider ANTES da exclusao por autoria —
+// senao `LMS_AUTHOR=opus` nao tirava o claude da cadeia.
+test('LMS_AUTHOR aceita apelidos opus e sol/gpt (1.4.3)', () => {
+  assert.equal(authorProvider({ LMS_AUTHOR: 'opus' }), 'claude');
+  assert.equal(authorProvider({ LMS_AUTHOR: 'Opus' }), 'claude');
+  assert.equal(authorProvider({ LMS_AUTHOR: 'sol' }), 'codex');
+  assert.equal(authorProvider({ LMS_AUTHOR: 'gpt' }), 'codex');
+  assert.equal(authorProvider({ LMS_AUTHOR: 'claude' }), 'claude', 'nome do provider segue valendo');
+  assert.equal(authorProvider({ LMS_AUTHOR: 'codex' }), 'codex');
 });

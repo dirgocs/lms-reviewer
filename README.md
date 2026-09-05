@@ -82,7 +82,7 @@ Config inválida descarta o conjunto inteiro e cai nos defaults restritivos; reg
 exclusão quebrada nunca pode abrir uma isenção configurada.
 
 Providers, ordem, modelos e timeouts continuam em variáveis `LMS_*`. Defaults:
-`claude,grok,codex`, `claude-opus-4-8`, `grok-4.6`, `gpt-5.6-sol`, esforço Claude
+`claude,codex`, `claude-opus-5`, `gpt-5.6-sol`, esforço Claude
 `high` e timeout de 900 segundos.
 
 ## Testes

@@ -481,12 +481,10 @@ Default is inject-context only (not strict). `.lms/` is gitignored runtime state
 ## Headless reviewer fallback
 
 The publication gate runs authenticated local reviewers headlessly when
-`.lms/last.json` is missing or stale. The fixed default order is:
+`.lms/last.json` is missing or stale. The default order is:
 
-1. Claude Opus 4.8 High: `claude --model claude-opus-4-8 --effort high`
-2. Grok 4.6 Medium: `grok --model grok-4.6 --reasoning-effort medium` — medium
-   supera high no grok-4.6 para review (medição do Master, 2026-08-15)
-3. GPT-5.6 Sol High: `codex exec --model gpt-5.6-sol -s read-only` with
+1. Claude Opus 5 High: `claude --model claude-opus-5 --effort high`
+2. GPT-5.6 Sol High: `codex exec --model gpt-5.6-sol -s read-only` with
    (terra NÃO revisa — tier de execução intermediária; review exige modelo
    melhor ou do nível do autor — diretriz Master 2026-08-16) —
    `model_reasoning_effort="high"` — **`codex exec`, não `codex exec review`**: o
@@ -494,10 +492,40 @@ The publication gate runs authenticated local reviewers headlessly when
    sem `-`. O `-s read-only` é obrigatório: o codex lê arquivos executando shell, e o
    sandbox é o que impede mutação.
 
+**Grok saiu do default (política do Master, 2026-09-05).** A cadeia é Opus 5 +
+GPT-5.6 Sol; `grok` só entra se `LMS_REVIEWER_ORDER` listar, e o runner nunca
+invoca provider fora da ordem.
+
+### Envs da cadeia
+
+| Env | Default | Valores |
+| --- | --- | --- |
+| `LMS_REVIEWER_ORDER` | `claude,codex` | lista por vírgula; provider fora dela não é invocado |
+| `LMS_CLAUDE_MODEL` | `claude-opus-5` | id do modelo |
+| `LMS_CODEX_MODEL` | `gpt-5.6-sol` | id do modelo (terra não revisa) |
+| `LMS_EFFORT` | do raio do diff (`high`, ou `xhigh` em caminho de risco) | `low\|medium\|high\|xhigh` |
+| `LMS_CLAUDE_EFFORT` | — (papéis não-revisor) | `low\|medium\|high\|xhigh` |
+| `LMS_CODEX_EFFORT` | `high` | `low\|medium\|high\|xhigh` |
+| `LMS_AUTHOR` | inferido do ambiente | provider ou apelido: `opus`→claude, `sol`/`gpt`→codex |
+| `LMS_REFUTADOR` | escolhido pela cadeia | provider ou apelido; fixa quem contesta |
+| `LMS_REFUTADOR_MESMO_PROVIDER` | — | `1` permite o revisor refutar a si |
+| `LMS_REVIEWER_TIMEOUT_SEC` | `900` | segundos |
+
+**`max` não existe** em nenhuma env de esforço: é recusado com mensagem nomeando a
+env, e o default vale. A profundidade acompanha a complexidade do diff.
+
+`LMS_REFUTADOR` não afrouxa nada: apontar o próprio revisor exige
+`LMS_REFUTADOR_MESMO_PROVIDER=1`, e apontar quem não rodou (timeout, CLI ausente)
+não vira refutador — o aceite morre `sem-refutador`, que é o fail-closed correto.
+
+> Com dois providers no default, se o autor for um deles sobra **um** independente
+> e não há quem conteste: o aceite morre `sem-refutador`. É o comportamento
+> correto, não um bug. Saídas: rodar a lane com `LMS_AUTHOR` de quem realmente
+> escreveu, acrescentar um terceiro provider à ordem, ou assumir
+> `LMS_REFUTADOR_MESMO_PROVIDER=1` (fica carimbado `de=<provider>` no log).
+
 The public entry points are `pnpm exec lms-reviewer` and `pnpm exec lms-trigger`;
-their implementation lives in the installed package. Model and timeout overrides are
-`LMS_CLAUDE_MODEL`, `LMS_GROK_MODEL`, `LMS_CODEX_MODEL`,
-`LMS_REVIEWER_ORDER`, and `LMS_REVIEWER_TIMEOUT_SEC`. OAuth remains in each
+their implementation lives in the installed package. OAuth remains in each
 CLI's local session; no provider credentials are read or logged by the repo.
 
 Reviewers run read-only and must return a fresh structured scorecard.
@@ -526,7 +554,7 @@ o codex fez, aprovando em 17s com `reasoning_tokens: 152` e zero ferramentas.
 
 O prompt enviado aos reviewers traz o **objeto exato** e as strings literais de
 `reviewer` e `base`. Pedir "um JSON com reviewer, score, base…" em prosa era a
-outra metade do problema: os três providers escreviam `reviewer: "Claude Opus 4.8"`,
+outra metade do problema: os providers escreviam `reviewer: "Claude Opus 5"`,
 omitiam `base` ou embrulhavam em cerca markdown, e falhavam na validação.
 
 Diagnóstico quando algo falha: `.lms/fallback.log` traz `provider`, `result` e

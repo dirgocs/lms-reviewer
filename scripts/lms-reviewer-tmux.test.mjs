@@ -48,7 +48,7 @@ test('prompt muda de stdout para arquivo quando ha destino', () => {
 
 test('runner crava os fatos objetivos por cima do que o modelo escreveu', () => {
   const stamped = stampScorecard(
-    { ...scorecard(), reviewer: 'Claude Opus 4.8', base: 'inventado', at: '2099-01-01T00:00:00Z' },
+    { ...scorecard(), reviewer: 'Claude Opus 5', base: 'inventado', at: '2099-01-01T00:00:00Z' },
     'grok',
     'pass',
     'origin/master',

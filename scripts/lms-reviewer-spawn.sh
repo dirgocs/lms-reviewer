@@ -46,7 +46,7 @@ fi
 
 tmux new-session -d -s "$SESSION" -c "$ROOT"
 
-BOOTSTRAP="cd $(printf %q "$ROOT") && echo 'LMS reviewer session. Load local-merge-score. Greptile saiu do pipeline; apenas LMS.' && claude --model \"${LMS_CLAUDE_MODEL:-claude-opus-4-8}\" --effort high"
+BOOTSTRAP="cd $(printf %q "$ROOT") && echo 'LMS reviewer session. Load local-merge-score. Greptile saiu do pipeline; apenas LMS.' && claude --model \"${LMS_CLAUDE_MODEL:-claude-opus-5}\" --effort high"
 if command -v claude >/dev/null 2>&1; then
   tmux send-keys -t "$SESSION" "$BOOTSTRAP" C-m
 else

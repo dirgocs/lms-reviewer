@@ -15,7 +15,7 @@ import {
   findingId,
   verifiedDiskError,
 } from './lms-scorecard.mjs';
-import { effortPara } from './lms-effort.mjs';
+import { effortPara, effortValido } from './lms-effort.mjs';
 import { lerPrecedentes, registrarPrecedente } from './lms-precedentes.mjs';
 import { autoresPorArquivo, providerPodeRevisar } from './lms-fix-autoria.mjs';
 import {
@@ -44,7 +44,7 @@ function envList(env, key, fallback) {
 
 function providerModels(env) {
   return {
-    claude: env.LMS_CLAUDE_MODEL ?? 'claude-opus-4-8',
+    claude: env.LMS_CLAUDE_MODEL ?? 'claude-opus-5',
     grok: env.LMS_GROK_MODEL ?? 'grok-4.6',
     // sol, nunca terra: terra é tier de execução intermediária — review exige
     // modelo melhor ou do nível do autor (diretriz Master 2026-08-16).
@@ -70,18 +70,19 @@ function timeoutMs(env) {
 export function providerConfig(env = process.env, { paths = [] } = {}) {
   const effort = effortPara(paths, env);
   return {
-    order: envList(env, 'LMS_REVIEWER_ORDER', 'claude,grok,codex'),
+    // Grok encerrado (politica do Master, 2026-09-05): sai do default e so entra
+    // se a env listar. A cadeia default e Opus 5 + GPT-5.6 Sol.
+    order: envList(env, 'LMS_REVIEWER_ORDER', 'claude,codex'),
     // P2-1 da revisao da Fase 2: `effort` (do raio) vale SO para o revisor — o
     // commandFor decide pelo papel. O claude em outros papeis (refutador,
     // verificador) usa LMS_CLAUDE_EFFORT (Fable em medium, Master 2026-08-19) e
     // NUNCA herda o raio: antes, com a env ausente, o refutador subia para xhigh.
-    claudeEffort: env.LMS_CLAUDE_EFFORT,
+    claudeEffort: effortValido(env.LMS_CLAUDE_EFFORT, 'LMS_CLAUDE_EFFORT') ?? undefined,
     effort,
-    // `xhigh`, não `high` (diretriz Master 2026-08-27). Review é o trabalho mais
-    // difícil da cadeia: o revisor tem de refutar código já defendido em comentário,
-    // e cada rodada perdida custa 8–20 min. Esforço a mais aqui é barato comparado
-    // com achado que passa.
-    codexEffort: env.LMS_CODEX_EFFORT ?? 'xhigh',
+    // `high` por default (politica do Master, 2026-09-05): a profundidade passa a
+    // acompanhar a complexidade do diff em vez de ficar cravada no teto, e `max`
+    // nao existe — e recusado com mensagem em vez de virar flag para o CLI.
+    codexEffort: effortValido(env.LMS_CODEX_EFFORT, 'LMS_CODEX_EFFORT') ?? 'high',
     models: providerModels(env),
     bins: providerBins(env),
     timeoutMs: timeoutMs(env),
@@ -382,7 +383,7 @@ export function reviewPrompt(
 ) {
   // O contrato tem de ser LITERAL. A versão anterior pedia "um JSON com reviewer,
   // score, target, base..." em prosa, e os três providers falhavam na validação:
-  // escreviam `reviewer: "Claude Opus 4.8"`, omitiam `base`, ou embrulhavam em cerca
+  // escreviam `reviewer: "Claude Opus 5"`, omitiam `base`, ou embrulhavam em cerca
   // markdown. Mostrar o objeto exato custa alguns tokens e elimina a classe de erro.
   return [
     `Review the current branch against ${base} using four lenses: code-safety,`,
@@ -1213,8 +1214,30 @@ export async function attemptProvider({
  * A detecção é por variável de ambiente do próprio CLI, então funciona sem ninguém
  * configurar nada; `LMS_AUTHOR` sobrescreve quando a inferência não serve.
  */
+/**
+ * Apelidos de modelo -> provider (politica do Master, 2026-09-05). As lanes falam
+ * "opus" e "sol"; a cadeia fala "claude" e "codex". Normalizar ANTES da exclusao
+ * por autoria e o que importa: `LMS_AUTHOR=opus` que nao virasse `claude` deixava
+ * o proprio autor revisando o proprio diff, em silencio.
+ */
+const APELIDOS_DE_PROVIDER = Object.freeze({
+  opus: 'claude',
+  claude: 'claude',
+  sol: 'codex',
+  gpt: 'codex',
+  codex: 'codex',
+  grok: 'grok',
+  pi: 'pi',
+});
+
+export function normalizarProvider(valor) {
+  const limpo = String(valor ?? '').trim().toLowerCase();
+  if (!limpo) return '';
+  return APELIDOS_DE_PROVIDER[limpo] ?? limpo;
+}
+
 export function authorProvider(env = process.env) {
-  if (env.LMS_AUTHOR) return env.LMS_AUTHOR.trim();
+  if (env.LMS_AUTHOR) return normalizarProvider(env.LMS_AUTHOR);
   if (env.CLAUDECODE || env.CLAUDE_CODE_ENTRYPOINT) return 'claude';
   if (env.CODEX_HOME || env.CODEX_SANDBOX) return 'codex';
   if (env.GROK_HOME || env.GROK_SESSION_ID) return 'grok';
@@ -1516,6 +1539,17 @@ export function escolherRefutador({ ordem, attempts, provider, autor, env = proc
   );
   const elegivel = (outro) => outro !== provider && outro !== autor && !naoRodou.has(outro);
   const usados = new Set(attempts.map((tentativa) => tentativa.provider));
+
+  // LMS_REFUTADOR fixa quem contesta (politica do Master, 2026-09-05), mas nao
+  // afrouxa nada: apontar o proprio revisor exige a mesma env de excecao de
+  // sempre, e apontar quem nao rodou nao vira refutador so porque a env pediu —
+  // ficaria um aceite sem contraditorio de verdade, que e o buraco.
+  const fixado = normalizarProvider(env.LMS_REFUTADOR);
+  if (fixado) {
+    if (naoRodou.has(fixado)) return undefined;
+    if (fixado !== provider) return fixado;
+    return env.LMS_REFUTADOR_MESMO_PROVIDER === '1' ? fixado : undefined;
+  }
   const cruzado = ordem.find((outro) => elegivel(outro) && !usados.has(outro)) ?? ordem.find(elegivel);
   if (cruzado) return cruzado;
   // Exceção EXPLÍCITA (decisão do Master, 2026-08-27, sob apagão de cota dupla —

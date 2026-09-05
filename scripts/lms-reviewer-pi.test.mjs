@@ -41,7 +41,16 @@ async function fixture() {
   await chmod(bin, 0o755);
   // O collectPi nao passa por childEnvironment: o env que chega E o env do spawn.
   // Em producao o runner tmux passa process.env inteiro; o teste espelha isso.
+  // 1.4.3: a ordem default passou a ter DOIS providers (claude,codex). Se o
+  // ambiente do teste inferisse autoria (CLAUDECODE do proprio terminal), sobraria
+  // um unico independente e todo aceite morreria `sem-refutador` — o que estes
+  // testes nao estao medindo. Autoria neutra: os dois revisam e um contesta.
   const env = { ...process.env, LMS_PI_BIN: bin, FAKE_PI_LOG: log };
+  delete env.CLAUDECODE;
+  delete env.CLAUDE_CODE_ENTRYPOINT;
+  delete env.CODEX_HOME;
+  delete env.CODEX_SANDBOX;
+  delete env.LMS_AUTHOR;
   return { root, env, log, bin };
 }
 

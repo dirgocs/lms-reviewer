@@ -21,6 +21,7 @@ import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { comIdsDeAchado } from './lms-scorecard.mjs';
+import { effortValido } from './lms-effort.mjs';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { reportarDesfecho, runFallback } from './lms-reviewer-fallback.mjs';
@@ -117,13 +118,14 @@ export function tuiCommand(provider, model) {
       'workspace-write',
       '--ask-for-approval',
       'never',
-      // Mesma env e mesmo padrão do runner headless (lms-reviewer-fallback.mjs):
-      // xhigh por diretriz do Master (2026-08-27). Divergir aqui fez o refutador
-      // rodar em high por uma rodada inteira sem ninguém pedir.
+      // Mesma env, mesmo default e mesma validacao do runner headless
+      // (lms-reviewer-fallback.mjs): `high` por politica do Master (2026-09-05), e
+      // `max` recusado com mensagem. Divergir aqui ja fez o refutador rodar em
+      // effort diferente por uma rodada inteira sem ninguem pedir.
       '--model',
       model,
       '-c',
-      `model_reasoning_effort=${process.env.LMS_CODEX_EFFORT ?? 'xhigh'}`,
+      `model_reasoning_effort=${effortValido(process.env.LMS_CODEX_EFFORT, 'LMS_CODEX_EFFORT') ?? 'high'}`,
     ];
   }
   // grok sem cota (Master, 2026-08-27, até 01/09): LMS_GROK_BIN aponta um TUI
