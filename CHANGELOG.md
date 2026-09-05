@@ -8,6 +8,35 @@ O que conta como *breaking* aqui: mudar o schema do scorecard, o contrato de
 gate. **Afrouxar o gate é breaking mesmo que nada quebre tecnicamente** — quem instalou
 isto instalou o rigor, e um gate que passa a deixar passar é uma regressão silenciosa.
 
+## [1.4.3] - 2026-09-05
+
+Política do Master: Grok encerrado; lanes e LMS rodam Opus 5 + GPT-5.6 Sol;
+esforço `low|medium|high|xhigh` por complexidade, nunca `max`.
+
+### Alterado (breaking em defaults)
+
+- **`LMS_REVIEWER_ORDER` default passa a `claude,codex`.** Grok sai do default e
+  só entra se a env listar; o runner nunca invoca provider fora da ordem. **Quem
+  dependia do grok na cadeia precisa listá-lo explicitamente.**
+- **`LMS_CLAUDE_MODEL` default passa a `claude-opus-5`** (`claude-opus-4-8` está
+  deprecado; todas as referências saíram de scripts, skill e docs).
+- **`LMS_CODEX_EFFORT` default passa a `high`** (era `xhigh`): a profundidade
+  acompanha a complexidade do diff em vez de ficar cravada no teto.
+- **`max` é recusado** em `LMS_CODEX_EFFORT`, `LMS_CLAUDE_EFFORT` e `LMS_EFFORT`,
+  com mensagem nomeando a env; o default vale. `LMS_EFFORT` passa a aceitar `low`.
+
+### Adicionado
+
+- **`LMS_REFUTADOR=<provider>`** fixa quem contesta. Não afrouxa nada: apontar o
+  próprio revisor exige `LMS_REFUTADOR_MESMO_PROVIDER=1`, e apontar quem não rodou
+  (timeout, CLI ausente) não vira refutador — o aceite morre `sem-refutador`.
+- **`LMS_AUTHOR` aceita apelidos** de modelo (`opus`→`claude`, `sol`/`gpt`→`codex`),
+  normalizados antes da exclusão por autoria. Sem isso, `LMS_AUTHOR=opus` deixava o
+  próprio autor revisando o próprio diff, em silêncio.
+- Tabela env/default/valores na SKILL, com o aviso operacional que cai da política:
+  com dois providers no default, se o autor for um deles sobra **um** independente
+  e o aceite morre `sem-refutador` — comportamento correto, com as saídas nomeadas.
+
 ## [1.4.2] - 2026-09-04
 
 Patch: um defeito do 1.4.1 visto no KDT-68.
