@@ -8,6 +8,20 @@ O que conta como *breaking* aqui: mudar o schema do scorecard, o contrato de
 gate. **Afrouxar o gate é breaking mesmo que nada quebre tecnicamente** — quem instalou
 isto instalou o rigor, e um gate que passa a deixar passar é uma regressão silenciosa.
 
+## [1.6.0] - 2026-09-13
+
+### Adicionado
+
+- `codePaths` em `lms.config.json`: o projeto declara o que é **código** e a isenção
+  **inverte** — tudo isento (doc, tooling de agente, bump de devDependency, lockfile,
+  hook, AGENTS.md), só um conjunto com ao menos um arquivo de código acorda a cadeia.
+  `nonExemptPaths` continua prioritário; conjunto vazio segue fechado. Com `codePaths`
+  a triagem deixa de forçar revisão pela lista fixa de "superfície sensível" — quem
+  quer migration/gate revisados os declara como código. Motivo: o bump do próprio
+  `@dirgocs/lms-reviewer` em `package.json` acordava três revisores (13/09/2026).
+  Diretriz do Master: "o LMS serve para rodar alterações de código". Sem `codePaths`
+  nada muda (`exemptPaths` como antes).
+
 ## [1.5.1] - 2026-09-13
 
 ### Corrigido

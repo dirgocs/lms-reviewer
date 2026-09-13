@@ -21,6 +21,22 @@ test('somente paths isentos passam; vazio e conjunto misto falham fechados', () 
   assert.equal(isExempt(['README.md', 'src/index.ts'], rules), false);
 });
 
+test('codePaths inverte a regra: isento salvo codigo; nonExemptPaths ainda manda (Master 2026-09-13)', () => {
+  const rules = config({
+    codePaths: ['^(apps|packages|services)/.*\\.(ts|tsx|py|sql|prisma)$', '(^|/)migrations/'],
+    nonExemptPaths: ['^corpus/.*\\.xsd$'],
+  });
+  // bump de devDependency + lockfile + doc + hook: nada de codigo -> isento
+  assert.equal(isExempt(['package.json', 'pnpm-lock.yaml', 'services/AGENTS.md', '.husky/pre-push'], rules), true);
+  // um arquivo de codigo no meio acorda a cadeia
+  assert.equal(isExempt(['package.json', 'services/api/src/routes/pos-fiscal.ts'], rules), false);
+  assert.equal(isExempt(['services/api/migrations/20260913_x.sql'], rules), false);
+  // nonExemptPaths continua prioritario mesmo fora de codePaths
+  assert.equal(isExempt(['corpus/schema.xsd'], rules), false);
+  // vazio segue fechado
+  assert.equal(isExempt([], rules), false);
+});
+
 test('nonExemptPaths prevalece sobre prefixo isento', () => {
   const rules = config({
     exemptPaths: ['^corpus/'],

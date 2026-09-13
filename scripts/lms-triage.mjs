@@ -33,12 +33,17 @@ const SEMPRE_REVISAR = [
 
 export function precisaRevisao(
   paths,
-  config = { exemptPaths: DEFAULT_EXEMPT_PATHS, nonExemptPaths: [] },
+  config = { exemptPaths: DEFAULT_EXEMPT_PATHS, nonExemptPaths: [], codePaths: [] },
 ) {
   if (!Array.isArray(paths) || paths.length === 0) {
     return { revisar: true, motivo: 'sem informacao de diff' };
   }
-  const obrigatorio = paths.find((p) => SEMPRE_REVISAR.some((re) => re.test(p)));
+  // Com `codePaths` o projeto disse o que e codigo; a lista fixa de superficies
+  // sensiveis (AGENTS.md, hooks, CI) deixa de valer — doc e tooling nao acordam
+  // revisor (Master, 2026-09-13). Migration e gate continuam revisados se o projeto
+  // os declarar como codigo.
+  const listaFixa = (config.codePaths?.length ?? 0) === 0;
+  const obrigatorio = listaFixa ? paths.find((p) => SEMPRE_REVISAR.some((re) => re.test(p))) : undefined;
   if (obrigatorio) return { revisar: true, motivo: `toca superficie sensivel: ${obrigatorio}` };
 
   if (isExempt(paths, config)) {

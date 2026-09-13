@@ -48,6 +48,7 @@ const EMPTY = Object.freeze({
   fallow: Object.freeze({ gate: null, baseline: '.fallow/baseline.json' }),
   exemptPaths: DEFAULT_EXEMPT_PATHS,
   nonExemptPaths: Object.freeze([]),
+  codePaths: Object.freeze([]),
   testCommand: null,
   bugAgents: BUG_AGENTS_PADRAO,
 });
@@ -89,6 +90,9 @@ export function loadConfig(root = projectRoot()) {
         }),
         exemptPaths: regexList(raw.exemptPaths, DEFAULT_EXEMPT_PATHS, 'exemptPaths'),
         nonExemptPaths: regexList(raw.nonExemptPaths, [], 'nonExemptPaths'),
+        // Diretriz Master 2026-09-13: o LMS pontua CÓDIGO. Com `codePaths` declarado a
+        // isenção inverte — tudo é isento, salvo o que casa aqui (ou nonExemptPaths).
+        codePaths: regexList(raw.codePaths, [], 'codePaths'),
         // Fase 4: suíte verde como pré-condição de rodada. String = comando inteiro;
         // objeto = { cmd, args }. Opcional por desenho: repo sem suíte não declara
         // e o degrau é pulado com aviso.

@@ -34,6 +34,17 @@ test('exige revisao quando ha codigo junto da documentacao', () => {
   assert.equal(precisaRevisao(['docs/README.md', 'services/api/src/routes/rooms.ts']).revisar, true);
 });
 
+test('com codePaths a lista fixa cai: AGENTS.md e hook sozinhos sao dispensados, codigo nao', () => {
+  const config = {
+    exemptPaths: [],
+    nonExemptPaths: [],
+    codePaths: ['^(apps|packages|services)/.*\\.(ts|tsx|py|sql)$', '(^|/)migrations/'],
+  };
+  assert.equal(precisaRevisao(['services/AGENTS.md', '.husky/pre-push', 'package.json'], config).revisar, false);
+  assert.equal(precisaRevisao(['services/api/migrations/20260913_x.sql'], config).revisar, true);
+  assert.equal(precisaRevisao(['package.json', 'apps/pdv-mobile/lib/fiscal-status.ts'], config).revisar, true);
+});
+
 test('exige revisao para migration, mesmo sozinha', () => {
   assert.equal(precisaRevisao(['services/api/migrations/20260901_x.sql']).revisar, true);
 });

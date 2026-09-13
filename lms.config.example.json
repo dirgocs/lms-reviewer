@@ -7,7 +7,6 @@
     "(LMS_REVIEWER_ORDER, LMS_CLAUDE_MODEL, LMS_GROK_MODEL, LMS_CODEX_MODEL,",
     "LMS_*_BIN, LMS_CLAUDE_EFFORT, LMS_REVIEWER_TIMEOUT_SEC)."
   ],
-
   "$migrationsPath": [
     "Pasta de migrations append-only. Quando declarada, o prompt ganha a regra",
     "que impede o revisor de achar defeito em migration já aplicada — sem ela a",
@@ -16,13 +15,11 @@
     "isentar uma pasta inexistente."
   ],
   "migrationsPath": "database/migrations/",
-
   "$dbStateGate": [
     "Script que cobre o estado vivo do banco em CI. Só entra no prompt para dizer",
     "ao revisor que esse risco é coberto em outro lugar."
   ],
   "dbStateGate": "scripts/db-state-gate.mjs",
-
   "$fallow": [
     "Gate de regressão de métrica, medido pelo RUNNER (não declarado pelo",
     "reviewer — o modelo não tem shell nem relógio confiável). Sem `gate` a",
@@ -32,18 +29,20 @@
     "gate": "scripts/fallow-regression-gate.mjs",
     "baseline": ".fallow/baseline.json"
   },
-
   "$exemptPaths": [
     "Todo arquivo precisa casar com pelo menos uma regex para o conjunto ser isento.",
     "O default, se a chave faltar, cobre docs/ e extensoes de texto/documentacao."
   ],
-  "exemptPaths": ["^docs/", "\\.(md|mdx|txt|rst)$"],
-
+  "exemptPaths": [
+    "^docs/",
+    "\\.(md|mdx|txt|rst)$"
+  ],
   "$nonExemptPaths": [
     "Excecoes prioritarias dentro de prefixos isentos; qualquer match barra a isencao."
   ],
-  "nonExemptPaths": ["^docs/runtime/"],
-
+  "nonExemptPaths": [
+    "^docs/runtime/"
+  ],
   "$testCommand": [
     "Fase 4: suíte verde como pré-condição de rodada. O comando roda ANTES de",
     "gastar cota com revisores; suíte vermelha recusa a rodada (exit 11, nenhum",
@@ -51,8 +50,12 @@
     "limite próprio em LMS_TEST_TIMEOUT_MS (default 10 min); LMS_TEST_GATE=0 desliga.",
     "Falha de ferramenta (comando ausente, timeout) avisa e segue — nunca decide."
   ],
-  "testCommand": { "cmd": "pnpm", "args": ["test"] },
-
+  "testCommand": {
+    "cmd": "pnpm",
+    "args": [
+      "test"
+    ]
+  },
   "$bugAgents": [
     "Fase 5: triagem de bug com agentes de domínio do repo. 'dir' é onde moram os",
     "agentes .md (só os COMMITADOS e com 'status: ativo' rodam — agente gerado pelo",
@@ -64,5 +67,14 @@
     "TOKEN NUNCA ENTRA AQUI: LINEAR_API_KEY só em env, porque esta config é",
     "versionada. LINEAR_TEAM_ID em env VENCE o teamId declarado aqui."
   ],
-  "bugAgents": { "dir": ".agents/bug-triage", "tracker": "none", "guided": false }
+  "bugAgents": {
+    "dir": ".agents/bug-triage",
+    "tracker": "none",
+    "guided": false
+  },
+  "$codePaths": "Opcional. Quando declarado INVERTE a isencao: tudo isento, salvo conjunto com arquivo de codigo (ou nonExemptPaths). O LMS pontua codigo (Master, 2026-09-13).",
+  "codePaths": [
+    "^(apps|packages|services)/.*\\.(ts|tsx|js|jsx|mjs|cjs|py|sql|prisma)$",
+    "(^|/)migrations/"
+  ]
 }

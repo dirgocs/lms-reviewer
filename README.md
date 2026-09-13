@@ -77,6 +77,10 @@ vai para `.lms/last.json`; falha dos providers também bloqueia e fica registrad
 - `fallow.gate` e `fallow.baseline`: medição objetiva executada pelo runner.
 - `exemptPaths`: regexes; **todo** arquivo precisa casar para o push ser isento.
 - `nonExemptPaths`: exceções prioritárias dentro de um prefixo isento.
+- `codePaths`: regexes do que é **código**. Quando declarado, **inverte** a regra: tudo é
+  isento (doc, tooling de agente, bump de devDependency, lockfile, hook) e só um conjunto
+  com ao menos um arquivo de código acorda a cadeia. `nonExemptPaths` continua
+  prioritário. O LMS pontua código — diretriz do Master, 2026-09-13.
 
 Config inválida descarta o conjunto inteiro e cai nos defaults restritivos; regex de
 exclusão quebrada nunca pode abrir uma isenção configurada.
