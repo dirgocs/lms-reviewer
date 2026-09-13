@@ -91,8 +91,12 @@ export function tuiCommand(provider, model) {
     ];
   }
   if (provider === 'pi') {
-    // TUI do Pi: GLM via OpenRouter. Allowlist de tools sem bash/edit/write — a
-    // janela é não-assistida e o refutador não publica.
+    // TUI do Pi. Allowlist de tools sem bash/edit — a janela é não-assistida e o
+    // revisor não publica. `write` FICA: o contrato deste runner é gravar
+    // `.lms/candidates/pi.json` (linha 17), e sem a tool o pi imprime o JSON no
+    // pane e a cadeia espera o arquivo até o teto (2 rodadas de 40 min, 13/09).
+    // Sem bash não há `git push`/`gh pr`; write só cria/sobrescreve arquivo.
+    // Provider/modelo por `LMS_PI_PROVIDER`/`LMS_PI_MODEL` (ex.: xai + grok-4.6).
     return [
       process.env.LMS_PI_BIN ?? 'pi',
       '--provider',
@@ -102,9 +106,9 @@ export function tuiCommand(provider, model) {
       '--thinking',
       process.env.LMS_PI_THINKING ?? 'high',
       '--tools',
-      'read,grep,find',
+      'read,grep,find,write',
       '--exclude-tools',
-      'bash,edit,write',
+      'bash,edit',
     ];
   }
   if (provider === 'codex') {

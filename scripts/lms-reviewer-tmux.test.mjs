@@ -200,7 +200,7 @@ test('promptEstaRodando reconhece os marcadores dos tres TUIs e recusa prompt pa
   );
 });
 
-test('tui do pi nao invoca codex e restringe tools de mutacao', () => {
+test('tui do pi nao invoca codex, grava o candidato e nao tem bash/edit', () => {
   const cmd = tuiCommand('pi', 'z-ai/glm-5.3-flash');
   assert.equal(cmd[0], 'pi');
   assert.ok(cmd.includes('openrouter'));
@@ -208,7 +208,14 @@ test('tui do pi nao invoca codex e restringe tools de mutacao', () => {
   assert.ok(!cmd.includes('codex'));
   const tools = cmd[cmd.indexOf('--tools') + 1];
   assert.match(tools, /read/);
-  assert.doesNotMatch(tools, /bash|edit|write/i);
+  // Sem `write` o pi nao consegue cumprir o contrato (.lms/candidates/pi.json):
+  // imprime o JSON no pane e a cadeia morre em timeout (13/09/2026, 2 rodadas).
+  assert.match(tools, /write/);
+  assert.doesNotMatch(tools, /bash|edit/i);
+  const excluidas = cmd[cmd.indexOf('--exclude-tools') + 1];
+  assert.match(excluidas, /bash/);
+  assert.match(excluidas, /edit/);
+  assert.doesNotMatch(excluidas, /write/);
 });
 
 test('LMS_GROK_BIN so substitui o TUI com o atestado de trava (rodada 85)', () => {

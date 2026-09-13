@@ -8,6 +8,19 @@ O que conta como *breaking* aqui: mudar o schema do scorecard, o contrato de
 gate. **Afrouxar o gate é breaking mesmo que nada quebre tecnicamente** — quem instalou
 isto instalou o rigor, e um gate que passa a deixar passar é uma regressão silenciosa.
 
+## [1.5.1] - 2026-09-13
+
+### Corrigido
+
+- Provider `pi` na cadeia tmux subia com `--exclude-tools bash,edit,write`: sem
+  `write` o pi nunca grava `.lms/candidates/pi.json` — imprime o JSON no pane e o
+  runner espera o arquivo até o teto (duas rodadas de 40 min em 13/09/2026, como
+  refutador de grok, com glm via OpenRouter e com grok-4.5 via xai). Agora
+  `--tools read,grep,find,write --exclude-tools bash,edit`: `write` só cria
+  arquivo; sem bash não há como publicar. Provider e modelo seguem por
+  `LMS_PI_PROVIDER`/`LMS_PI_MODEL` (grok-4.6 via `xai` é tier fronteira e refuta
+  Grok 4; glm é intermediário e a regra da 1.5.0 o descarta).
+
 ## [1.5.0] - 2026-09-13
 
 ### Alterado (aperto do gate)
