@@ -8,6 +8,14 @@ O que conta como *breaking* aqui: mudar o schema do scorecard, o contrato de
 gate. **Afrouxar o gate é breaking mesmo que nada quebre tecnicamente** — quem instalou
 isto instalou o rigor, e um gate que passa a deixar passar é uma regressão silenciosa.
 
+## [1.6.1] - 2026-09-13
+
+### Corrigido
+
+- `pi` faltava no allowlist `REVIEWERS` do validador: o runner grava `reviewer: "pi"`
+  e o scorecard voltava `invalid reviewer` — o primeiro 5/5 do pi (grok-4.6 via xai)
+  na cadeia tmux foi descartado assim (13/09/2026).
+
 ## [1.6.0] - 2026-09-13
 
 ### Adicionado

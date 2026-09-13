@@ -310,6 +310,11 @@ test('exige uma superficie que cubra o diff (P2-4)', () => {
   assert.equal(coverageDiffError(validScorecard(), new Set()), null);
 });
 
+test('pi e reviewer valido: o runner grava reviewer=pi e o validador tem de aceitar', () => {
+  assert.equal(scorecardError(validScorecard('pi'), { ...options, reviewer: 'pi' }), null);
+  assert.match(scorecardError(validScorecard('glm'), { ...options, reviewer: 'glm' }) ?? '', /invalid reviewer/);
+});
+
 test('semArtefatosGerados: o denominador de coverage segue o recorte do prompt (13/09/2026)', () => {
   // 45 no diff cru, 5 gerados que o prompt manda nao citar: o revisor declara 40 e
   // o validador tem de aceitar 40 — antes exigia 45 e matava um aceite 5/5 + upheld.

@@ -12,7 +12,9 @@ import {
 } from './lms-inspection.mjs';
 import { reviewSubject } from './lms-subject.mjs';
 
-const REVIEWERS = new Set(['claude', 'grok', 'codex']);
+// `pi` entrou na cadeia na 1.1.5 mas nunca aqui: o runner grava reviewer='pi' e o
+// validador devolvia 'invalid reviewer' (13/09/2026, primeiro 5/5 do pi perdido).
+const REVIEWERS = new Set(['claude', 'grok', 'codex', 'pi']);
 const LENSES = ['code-safety', 'code-structure', 'code-quality', 'code-efficiency'];
 
 function isNonNegativeInteger(value) {
