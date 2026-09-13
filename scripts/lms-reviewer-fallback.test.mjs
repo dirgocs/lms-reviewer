@@ -2043,6 +2043,47 @@ test('LMS_REFUTADOR fixa o refutador (1.4.3)', () => {
   );
 });
 
+test('tierDoModelo classifica pelo nome e devolve null para id desconhecido', async () => {
+  const { tierDoModelo } = await import('./lms-reviewer-fallback.mjs');
+  assert.equal(tierDoModelo('claude-opus-5'), 3);
+  assert.equal(tierDoModelo('claude-fable-5-1'), 3);
+  assert.equal(tierDoModelo('gpt-5.6-sol'), 3);
+  assert.equal(tierDoModelo('grok-4.6'), 3);
+  assert.equal(tierDoModelo('claude-sonnet-5'), 2);
+  assert.equal(tierDoModelo('gpt-5.6-terra'), 2);
+  assert.equal(tierDoModelo('z-ai/glm-5.3-flash'), 1);
+  assert.equal(tierDoModelo('claude-haiku-4-5-20251001'), 1);
+  assert.equal(tierDoModelo('modelo-novo-x'), null);
+  assert.equal(tierDoModelo(undefined), null);
+});
+
+// Diretriz Master 2026-09-13: refutador nunca inferior ao revisor. Nasceu de uma rodada
+// em modo subagent em que Opus revisou e Sonnet refutou; o aceite foi concedido por
+// decisao explicita, com a regra gravada para nao repetir.
+test('refutador de tier inferior ao revisor nao e elegivel, nem por LMS_REFUTADOR', () => {
+  const attempts = [{ provider: 'claude', result: 'accepted' }];
+  const base = { ordem: ['claude', 'pi', 'codex'], attempts, provider: 'claude', autor: '' };
+  // pi roda glm flash (tier 1) por default: pulado; codex (sol, tier 3) refuta.
+  assert.equal(escolherRefutador({ ...base, env: {} }), 'codex');
+  // Apontar o inferior pela env nao cria elegibilidade: aceite morre sem-refutador.
+  assert.equal(escolherRefutador({ ...base, env: { LMS_REFUTADOR: 'pi' } }), undefined);
+  // Codex rebaixado para terra (tier 2) tambem sai; so sobra ninguem.
+  assert.equal(
+    escolherRefutador({ ...base, ordem: ['claude', 'codex'], env: { LMS_CODEX_MODEL: 'gpt-5.6-terra' } }),
+    undefined,
+  );
+  // Tier desconhecido de um lado nao bloqueia a cadeia.
+  assert.equal(
+    escolherRefutador({ ...base, ordem: ['claude', 'codex'], env: { LMS_CODEX_MODEL: 'modelo-novo-x' } }),
+    'codex',
+  );
+  // Revisor de tier menor pode ser refutado por um maior (o sentido que importa).
+  assert.equal(
+    escolherRefutador({ ...base, ordem: ['pi', 'claude'], provider: 'pi', env: {} }),
+    'claude',
+  );
+});
+
 test('LMS_REFUTADOR igual ao revisor exige a env de mesmo provider (1.4.3)', () => {
   const attempts = [{ provider: 'claude', result: 'accepted' }];
   const base = { ordem: ['claude', 'codex'], attempts, provider: 'claude', autor: '' };

@@ -8,6 +8,20 @@ O que conta como *breaking* aqui: mudar o schema do scorecard, o contrato de
 gate. **Afrouxar o gate é breaking mesmo que nada quebre tecnicamente** — quem instalou
 isto instalou o rigor, e um gate que passa a deixar passar é uma regressão silenciosa.
 
+## [Unreleased]
+
+### Alterado (aperto do gate)
+
+- **Refutador nunca inferior ao revisor** (diretriz Master 2026-09-13). O runner
+  classifica os modelos configurados por tier pelo nome (fronteira: Opus,
+  Fable/Mythos, GPT sol, Grok 4; intermediário: Sonnet, GPT terra, GLM; leve: Haiku,
+  mini, flash) e `escolherRefutador` pula candidato de tier menor que o do revisor —
+  também quando `LMS_REFUTADOR` o aponta: sem outro elegível, o aceite morre
+  `sem-refutador`. Tier desconhecido de um dos lados não bloqueia. A skill grava a
+  mesma regra para o modo subagent, onde o runner não roda (Sonnet/Haiku não
+  refutam Opus). Origem: rodada em que Opus revisou e Sonnet refutou, aceita só por
+  decisão explícita do Master.
+
 ## [1.4.3] - 2026-09-05
 
 Política do Master: Grok encerrado; lanes e LMS rodam Opus 5 + GPT-5.6 Sol;

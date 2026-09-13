@@ -127,8 +127,20 @@ raciocínio que produziu o defeito julgando o defeito. A regra que vale no resto
 projeto é **revisor ≠ autor** (ver política de modelos do swarm). Prefira, nesta ordem:
 
 1. cadeia de reviewers em tmux (`autonomy: "reviewer"`) — independente de verdade;
-2. um subagente com modelo **diferente** do autor;
+2. um subagente com modelo **diferente** do autor, **e um contraditório com modelo do
+   mesmo tier ou superior ao do revisor** — nunca inferior (ver abaixo);
 3. `self`, declarado como tal, quando não houver alternativa.
+
+**Refutador nunca inferior ao revisor (diretriz Master, 2026-09-13).** Vale nos dois
+caminhos. Na cadeia o runner já aplica: candidato com modelo de tier menor que o do
+revisor não é elegível, nem quando `LMS_REFUTADOR` o aponta — o aceite morre
+`sem-refutador`, que é o fail-closed correto. No modo subagent (ambiente sem os CLIs
+da cadeia) a regra é sua: quem revisa com Opus é contestado por Opus ou superior;
+Sonnet e Haiku **não refutam** Opus. Tiers pelo nome do modelo: fronteira (Opus,
+Fable/Mythos, GPT `sol`, Grok 4) > intermediário (Sonnet, GPT `terra`, GLM) > leve
+(Haiku, mini, flash). Contraditório de modelo mais fraco derruba menos do que deveria
+e o aceite sai parecendo mais forte do que é — a rodada que motivou a regra teve Opus
+revisando e Sonnet refutando, e foi aceita só por decisão explícita do Master.
 
 Classify **every** finding into one primary **lens**:
 
@@ -507,7 +519,7 @@ invoca provider fora da ordem.
 | `LMS_CLAUDE_EFFORT` | — (papéis não-revisor) | `low\|medium\|high\|xhigh` |
 | `LMS_CODEX_EFFORT` | `high` | `low\|medium\|high\|xhigh` |
 | `LMS_AUTHOR` | inferido do ambiente | provider ou apelido: `opus`→claude, `sol`/`gpt`→codex |
-| `LMS_REFUTADOR` | escolhido pela cadeia | provider ou apelido; fixa quem contesta |
+| `LMS_REFUTADOR` | escolhido pela cadeia | provider ou apelido; fixa quem contesta (nunca um de tier inferior ao revisor) |
 | `LMS_REFUTADOR_MESMO_PROVIDER` | — | `1` permite o revisor refutar a si |
 | `LMS_REVIEWER_TIMEOUT_SEC` | `900` | segundos |
 

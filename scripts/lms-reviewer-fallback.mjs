@@ -1528,8 +1528,38 @@ function imprimirAchado(refutador, veredito, avisos, faltando, log = console.err
 }
 
 /**
+ * Tier de capacidade de um id de modelo, pelo nome: 3 = fronteira (Opus, Fable/Mythos,
+ * GPT sol, Grok 4), 2 = intermediario (Sonnet, GPT terra, GLM), 1 = leve (Haiku, mini,
+ * flash). `null` = desconhecido — nao se bloqueia cadeia por modelo que ainda nao
+ * entrou na tabela; a comparacao so vale quando os dois lados sao conhecidos.
+ */
+export function tierDoModelo(modelId) {
+  const id = String(modelId ?? '').toLowerCase();
+  if (!id) return null;
+  if (/haiku|mini|flash|nano/.test(id)) return 1;
+  if (/sonnet|terra|glm|lite/.test(id)) return 2;
+  if (/opus|fable|mythos|sol\b|sol-|grok-[4-9]|gpt-5/.test(id)) return 3;
+  return null;
+}
+
+/**
+ * Refutador nunca inferior ao revisor (diretriz Master 2026-09-13): contraditório de
+ * modelo mais fraco derruba menos do que deveria e o aceite sai parecendo mais forte
+ * do que é. Compara pelos modelos configurados dos providers; tier desconhecido de um
+ * dos lados nao bloqueia.
+ */
+export function refutadorInferior(candidato, provider, env = process.env) {
+  const modelos = providerModels(env);
+  const tierRevisor = tierDoModelo(modelos[provider]);
+  const tierCandidato = tierDoModelo(modelos[candidato]);
+  return tierRevisor !== null && tierCandidato !== null && tierCandidato < tierRevisor;
+}
+
+/**
  * Quem nao conseguiu nem rodar nesta rodada esta fora: insistir nele troca segunda
- * opiniao por outra falha. Quem devolveu lixo uma vez continua elegivel.
+ * opiniao por outra falha. Quem devolveu lixo uma vez continua elegivel. Quem roda
+ * modelo de tier inferior ao do revisor tambem esta fora — inclusive quando
+ * LMS_REFUTADOR o aponta: a env escolhe entre elegiveis, nao cria elegibilidade.
  */
 export function escolherRefutador({ ordem, attempts, provider, autor, env = process.env }) {
   const naoRodou = new Set(
@@ -1537,7 +1567,8 @@ export function escolherRefutador({ ordem, attempts, provider, autor, env = proc
       .filter((tentativa) => ['timeout', 'exit', 'missing-cli', 'error'].includes(tentativa.result))
       .map((tentativa) => tentativa.provider),
   );
-  const elegivel = (outro) => outro !== provider && outro !== autor && !naoRodou.has(outro);
+  const elegivel = (outro) =>
+    outro !== provider && outro !== autor && !naoRodou.has(outro) && !refutadorInferior(outro, provider, env);
   const usados = new Set(attempts.map((tentativa) => tentativa.provider));
 
   // LMS_REFUTADOR fixa quem contesta (politica do Master, 2026-09-05), mas nao
@@ -1546,7 +1577,7 @@ export function escolherRefutador({ ordem, attempts, provider, autor, env = proc
   // ficaria um aceite sem contraditorio de verdade, que e o buraco.
   const fixado = normalizarProvider(env.LMS_REFUTADOR);
   if (fixado) {
-    if (naoRodou.has(fixado)) return undefined;
+    if (naoRodou.has(fixado) || refutadorInferior(fixado, provider, env)) return undefined;
     if (fixado !== provider) return fixado;
     return env.LMS_REFUTADOR_MESMO_PROVIDER === '1' ? fixado : undefined;
   }
