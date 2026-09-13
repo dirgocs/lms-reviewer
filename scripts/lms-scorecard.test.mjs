@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 import { coverageDiffError, comIdsDeAchado, findingsShapeError, findingId, scorecardError, scorecardFormError, validateScorecard } from './lms-scorecard.mjs';
+import { semArtefatosGerados } from './lms-inspection.mjs';
 
 const now = Date.parse('2026-07-10T00:00:00.000Z');
 const options = {
@@ -307,6 +308,24 @@ test('exige uma superficie que cubra o diff (P2-4)', () => {
   assert.match(coverageDiffError(card, new Set(['a.ts', 'b.ts', 'c.ts'])), /3 changed file/);
   assert.equal(coverageDiffError(validScorecard(), new Set(['a.ts', 'b.ts', 'c.ts'])), null);
   assert.equal(coverageDiffError(validScorecard(), new Set()), null);
+});
+
+test('semArtefatosGerados: o denominador de coverage segue o recorte do prompt (13/09/2026)', () => {
+  // 45 no diff cru, 5 gerados que o prompt manda nao citar: o revisor declara 40 e
+  // o validador tem de aceitar 40 — antes exigia 45 e matava um aceite 5/5 + upheld.
+  const cru = new Set([
+    'services/api/src/routes/pos-fiscal.ts',
+    'packages/api-db-client/generated/prisma/models.ts',
+    'packages/api-db-client/generated/zod/index.ts',
+    'pnpm-lock.yaml',
+    'apps/pdv-mobile/pnpm-lock.yaml',
+    'graphify-out/graph.json',
+  ]);
+  const abriveis = semArtefatosGerados(cru);
+  assert.deepEqual([...abriveis], ['services/api/src/routes/pos-fiscal.ts']);
+  const card = { ...validScorecard(), coverage: [{ surface: 'changed files', total: 1, inspected: 1 }] };
+  assert.equal(coverageDiffError(card, abriveis), null);
+  assert.match(coverageDiffError(card, cru), /6 changed file/);
 });
 
 // Task extra da Fase 4 (KDT-68, LMS 1.2.0): score precisa ser coerente com a

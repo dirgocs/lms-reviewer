@@ -80,6 +80,23 @@ async function quoteMatches(root, path, line, quote) {
 }
 
 /**
+ * Artefato gerado que o runner tira do mapa do revisor e manda NÃO citar
+ * (CAMINHOS_GERADOS em lms-reviewer-fallback.mjs). O denominador de `coverage`
+ * precisa seguir o mesmo recorte: em 13/09/2026 o revisor declarou os 40 arquivos
+ * do prompt, o validador exigiu 45 (diff cru, 5 gerados) e um aceite 5/5 + upheld
+ * morreu em "coverage must declare a surface whose total covers…".
+ */
+const ARTEFATOS_GERADOS = [
+  /^packages\/api-db-client\/generated\//,
+  /(^|\/)pnpm-lock\.yaml$/,
+  /^graphify-out\//,
+];
+
+export function semArtefatosGerados(paths) {
+  return new Set([...paths].filter((p) => !ARTEFATOS_GERADOS.some((re) => re.test(p))));
+}
+
+/**
  * Arquivos que mudaram e ainda podem ser abertos.
  *
  * Deleção sai (não há o que abrir). Rename vem como `R100<TAB>antigo<TAB>novo`, e o

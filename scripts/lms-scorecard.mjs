@@ -8,6 +8,7 @@ import {
   citationsDiskError,
   inspectedShapeError,
   inspectionError,
+  semArtefatosGerados,
 } from './lms-inspection.mjs';
 import { reviewSubject } from './lms-subject.mjs';
 
@@ -547,7 +548,8 @@ async function validateFile(args) {
       process.exitCode = 1;
     }
     // P2-4: a cobertura declarada tem de dar conta do diff real.
-    const coverageDiff = coverageDiffError(value, abriveis);
+    // Mesmo recorte do prompt: gerado fica fora do denominador (ver semArtefatosGerados).
+    const coverageDiff = coverageDiffError(value, semArtefatosGerados(abriveis));
     if (coverageDiff) {
       console.error(`invalid LMS scorecard: ${coverageDiff}`);
       process.exitCode = 1;

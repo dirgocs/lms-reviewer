@@ -20,6 +20,13 @@ isto instalou o rigor, e um gate que passa a deixar passar é uma regressão sil
   arquivo; sem bash não há como publicar. Provider e modelo seguem por
   `LMS_PI_PROVIDER`/`LMS_PI_MODEL` (grok-4.6 via `xai` é tier fronteira e refuta
   Grok 4; glm é intermediário e a regra da 1.5.0 o descarta).
+- `coverage` do scorecard era conferido contra o diff CRU enquanto o prompt tira do
+  mapa os artefatos gerados (`packages/api-db-client/generated`, lockfiles,
+  `graphify-out`) e manda não citá-los: revisor declarava 40, validador exigia 45,
+  e um aceite grok 5/5 + Opus `upheld` morreu em "coverage must declare a surface
+  whose total covers…" (13/09/2026). O denominador agora segue o mesmo recorte
+  (`semArtefatosGerados`). A prova de leitura (`inspected`) continua sobre todos os
+  abríveis.
 
 ## [1.5.0] - 2026-09-13
 
