@@ -8,7 +8,7 @@ O que conta como *breaking* aqui: mudar o schema do scorecard, o contrato de
 gate. **Afrouxar o gate é breaking mesmo que nada quebre tecnicamente** — quem instalou
 isto instalou o rigor, e um gate que passa a deixar passar é uma regressão silenciosa.
 
-## [Unreleased]
+## [1.5.0] - 2026-09-13
 
 ### Alterado (aperto do gate)
 
