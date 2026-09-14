@@ -2043,6 +2043,37 @@ test('LMS_REFUTADOR fixa o refutador (1.4.3)', () => {
   );
 });
 
+test('LMS_CLAUDE_REFUTADOR_MODEL: refutador claude usa o proprio modelo; revisor mantem o dele', async () => {
+  const { modeloDe, refutadorInferior, escolherRefutador } = await import(
+    './lms-reviewer-fallback.mjs'
+  );
+  const env = {
+    LMS_CLAUDE_MODEL: 'claude-sonnet-5',
+    LMS_CLAUDE_REFUTADOR_MODEL: 'claude-opus-5',
+    LMS_REFUTADOR: 'claude',
+    LMS_REFUTADOR_MESMO_PROVIDER: '1',
+  };
+  const config = {
+    models: { claude: 'claude-sonnet-5' },
+    modelsRefutador: { claude: 'claude-opus-5' },
+  };
+  assert.equal(modeloDe(config, 'claude'), 'claude-sonnet-5');
+  assert.equal(modeloDe({ ...config, papel: 'refutador' }, 'claude'), 'claude-opus-5');
+  // Sem a tabela do refutador (config antiga), cai no modelo do provider.
+  assert.equal(modeloDe({ models: config.models, papel: 'refutador' }, 'claude'), 'claude-sonnet-5');
+  // Tier: Opus refutando Sonnet nao e inferior; e o par fixado passa a ser elegivel.
+  assert.equal(refutadorInferior('claude', 'claude', env), false);
+  assert.equal(
+    escolherRefutador({ ordem: ['claude'], attempts: [], provider: 'claude', autor: 'fable', env }),
+    'claude',
+  );
+  // Sem a env, o refutador claude herda LMS_CLAUDE_MODEL.
+  assert.equal(
+    refutadorInferior('claude', 'claude', { LMS_CLAUDE_MODEL: 'claude-sonnet-5' }),
+    false,
+  );
+});
+
 test('tierDoModelo classifica pelo nome e devolve null para id desconhecido', async () => {
   const { tierDoModelo } = await import('./lms-reviewer-fallback.mjs');
   assert.equal(tierDoModelo('claude-opus-5'), 3);

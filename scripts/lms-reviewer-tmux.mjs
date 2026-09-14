@@ -24,7 +24,7 @@ import { comIdsDeAchado } from './lms-scorecard.mjs';
 import { effortValido } from './lms-effort.mjs';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
-import { reportarDesfecho, runFallback } from './lms-reviewer-fallback.mjs';
+import { modeloDe, reportarDesfecho, runFallback } from './lms-reviewer-fallback.mjs';
 import { collectPi } from './lms-reviewer-pi.mjs';
 
 const execFile = promisify(execFileCb);
@@ -270,7 +270,7 @@ async function collectTmux({
   await rm(outPath, { force: true });
   await writeFile(promptPath, prompt, 'utf8');
 
-  const model = config.models[provider];
+  const model = modeloDe(config, provider);
   const window = `lms-${provider}`;
 
   const sessions = await tmux(['list-sessions', '-F', '#S'], { check: false });

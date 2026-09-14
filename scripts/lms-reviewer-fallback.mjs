@@ -53,6 +53,25 @@ function providerModels(env) {
   };
 }
 
+/**
+ * Modelo do REFUTADOR por provider, quando difere do revisor. Caso de uso (Master,
+ * 2026-09-14): Sonnet revisa e Opus refuta no mesmo provider `claude` — a cota do
+ * Grok acabou e Codex esta fora. Sem a env, o refutador usa o modelo do provider.
+ */
+function providerRefuterModels(env) {
+  const base = providerModels(env);
+  return {
+    ...base,
+    claude: env.LMS_CLAUDE_REFUTADOR_MODEL ?? base.claude,
+  };
+}
+
+/** Modelo pelo papel: `config.papel === 'refutador'` le a tabela do refutador. */
+export function modeloDe(config, provider) {
+  const tabela = config.papel === 'refutador' ? (config.modelsRefutador ?? config.models) : config.models;
+  return tabela?.[provider] ?? config.models?.[provider];
+}
+
 function providerBins(env) {
   return {
     claude: env.LMS_CLAUDE_BIN ?? 'claude',
@@ -84,6 +103,7 @@ export function providerConfig(env = process.env, { paths = [] } = {}) {
     // nao existe — e recusado com mensagem em vez de virar flag para o CLI.
     codexEffort: effortValido(env.LMS_CODEX_EFFORT, 'LMS_CODEX_EFFORT') ?? 'high',
     models: providerModels(env),
+    modelsRefutador: providerRefuterModels(env),
     bins: providerBins(env),
     timeoutMs: timeoutMs(env),
   };
@@ -99,7 +119,7 @@ export function providerConfig(env = process.env, { paths = [] } = {}) {
  * instrucao em prosa "nao mexa em outros arquivos" nunca garantiu nada.
  */
 export function commandFor(provider, config, { modo = 'review' } = {}) {
-  const model = config.models[provider];
+  const model = modeloDe(config, provider);
   const common = { command: config.bins[provider], input: config.prompt };
   const corrigindo = modo === 'fix';
   if (provider === 'claude') {
@@ -705,7 +725,7 @@ function telemetryData(round, estagio, provider, config, value) {
     ...round,
     estagio,
     provider,
-    modelo: config.models?.[provider] ?? '',
+    modelo: modeloDe(config, provider) ?? '',
     p0,
     p1,
     p2,
@@ -1549,9 +1569,8 @@ export function tierDoModelo(modelId) {
  * dos lados nao bloqueia.
  */
 export function refutadorInferior(candidato, provider, env = process.env) {
-  const modelos = providerModels(env);
-  const tierRevisor = tierDoModelo(modelos[provider]);
-  const tierCandidato = tierDoModelo(modelos[candidato]);
+  const tierRevisor = tierDoModelo(providerModels(env)[provider]);
+  const tierCandidato = tierDoModelo(providerRefuterModels(env)[candidato]);
   return tierRevisor !== null && tierCandidato !== null && tierCandidato < tierRevisor;
 }
 

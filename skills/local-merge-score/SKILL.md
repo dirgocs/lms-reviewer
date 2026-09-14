@@ -514,6 +514,7 @@ invoca provider fora da ordem.
 | --- | --- | --- |
 | `LMS_REVIEWER_ORDER` | `claude,codex` | lista por vírgula; provider fora dela não é invocado |
 | `LMS_CLAUDE_MODEL` | `claude-opus-5` | id do modelo |
+| `LMS_CLAUDE_REFUTADOR_MODEL` | = `LMS_CLAUDE_MODEL` | modelo do claude só no papel de refutador (Sonnet revisa, Opus refuta: com `LMS_REFUTADOR=claude LMS_REFUTADOR_MESMO_PROVIDER=1`) |
 | `LMS_CODEX_MODEL` | `gpt-5.6-sol` | id do modelo (terra não revisa) |
 | `LMS_EFFORT` | do raio do diff (`high`, ou `xhigh` em caminho de risco) | `low\|medium\|high\|xhigh` |
 | `LMS_CLAUDE_EFFORT` | — (papéis não-revisor) | `low\|medium\|high\|xhigh` |
