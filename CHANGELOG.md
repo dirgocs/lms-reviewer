@@ -8,6 +8,26 @@ O que conta como *breaking* aqui: mudar o schema do scorecard, o contrato de
 gate. **Afrouxar o gate é breaking mesmo que nada quebre tecnicamente** — quem instalou
 isto instalou o rigor, e um gate que passa a deixar passar é uma regressão silenciosa.
 
+## [1.6.3] - 2026-09-14
+
+### Alterado
+
+- Prova de citação (`inspected`/`verified`): citação **longa (≥ 24 caracteres
+  normalizados) e única no arquivo** vale mesmo com o número de linha fora da janela
+  de ±3. O Sonnet cita a linha certa com o número 5–18 posições fora (conta pelo hunk
+  do diff) e quatro rodadas morreram em `quote does not match` sem nenhuma citação
+  inventada. A prova continua sendo o conteúdo literal — foi sempre a intenção do
+  matcher; linha curta segue exigindo o número exato, e trecho repetido não vale.
+
+## [1.6.2] - 2026-09-14
+
+### Adicionado
+
+- `LMS_CLAUDE_REFUTADOR_MODEL`: modelo do `claude` só no papel de refutador. Com
+  `LMS_REFUTADOR=claude LMS_REFUTADOR_MESMO_PROVIDER=1`, Sonnet revisa e Opus refuta
+  no mesmo provider; a regra de tier compara o modelo do refutador com o do revisor.
+  Motivo: cota do Grok esgotada e Codex fora (14/09/2026).
+
 ## [1.6.1] - 2026-09-13
 
 ### Corrigido
