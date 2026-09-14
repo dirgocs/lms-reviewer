@@ -32,6 +32,25 @@ test('citationsDiskError reprova citacao que nao existe no arquivo', async () =>
   assert.match(erro, /package\.json/);
 });
 
+test('citacao longa e unica vale com o numero de linha errado; repetida ou curta, nao', async () => {
+  // `const MIN_QUOTE_LENGTH = 12;` existe uma vez em lms-inspection.mjs, longe da linha 1.
+  assert.equal(
+    await citationsDiskError(
+      [{ path: 'scripts/lms-inspection.mjs', line: 1, quote: 'const MIN_QUOTE_LENGTH = 12;' }],
+      process.cwd(),
+    ),
+    null,
+  );
+  // `return false;` aparece varias vezes: sem janela, nao prova nada.
+  assert.match(
+    (await citationsDiskError(
+      [{ path: 'scripts/lms-inspection.mjs', line: 1, quote: 'return false;' }],
+      process.cwd(),
+    )) ?? '',
+    /lms-inspection\.mjs/,
+  );
+});
+
 test('shape check rejects the old string form and empty quotes', () => {
   assert.match(inspectedShapeError({}) ?? '', /inspected is required/);
   assert.match(inspectedShapeError({ inspected: [] }) ?? '', /inspected is required/);

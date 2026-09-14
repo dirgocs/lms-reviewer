@@ -7,6 +7,12 @@ const execFile = promisify(execFileCallback);
 
 export const MAX_INSPECTED_REQUIRED = 3;
 const MIN_QUOTE_LENGTH = 12;
+// Citação longa E única no arquivo prova leitura literal mesmo com o número de
+// linha errado: Sonnet (14/09/2026) citou 5 linhas certas em 14 com o número
+// 5–18 posições fora — conta pelo hunk do diff, não pelo arquivo — e quatro
+// rodadas morreram em "quote does not match" sem nenhuma citação inventada.
+// O piso alto e a unicidade fecham a brecha: `return null;` repete e não vale.
+const MIN_QUOTE_LENGTH_SEM_LINHA = 24;
 const LINE_WINDOW = 3;
 
 /**
@@ -76,7 +82,9 @@ async function quoteMatches(root, path, line, quote) {
   for (let i = from; i < to; i += 1) {
     if (normalizeQuote(lines[i]).includes(wanted)) return true;
   }
-  return false;
+  if (wanted.length < MIN_QUOTE_LENGTH_SEM_LINHA) return false;
+  const ocorrencias = lines.filter((l) => normalizeQuote(l).includes(wanted)).length;
+  return ocorrencias === 1;
 }
 
 /**
