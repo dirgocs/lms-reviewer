@@ -5,7 +5,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { attemptProvider, reviewPrompt, runFallback, stampScorecard } from './lms-reviewer-fallback.mjs';
-import { caminhosDaColeta, collectTmux, lerCandidato, sessionNameFor, tuiCommand } from './lms-reviewer-tmux.mjs';
+import {
+  caminhosDaColeta,
+  collectTmux,
+  effortDaTui,
+  lerCandidato,
+  sessionNameFor,
+  tuiCommand,
+} from './lms-reviewer-tmux.mjs';
 import { findingId } from './lms-scorecard.mjs';
 
 /** Scorecard bem formado; `inspected` é preenchido pelo teste contra arquivos reais. */
@@ -198,6 +205,29 @@ test('promptEstaRodando reconhece os marcadores dos tres TUIs e recusa prompt pa
     promptEstaRodando('❯ Leia .lms/review-prompt.md e execute…\n› Ask Codex to do anything'),
     false,
   );
+});
+
+// A TUI do claude ignorava --effort e caia no default do CLI: a politica de
+// profundidade do Master so existia no runner headless, que e o modo PROIBIDO
+// (14/09/2026). Sonnet revisando em medium devolveu 5/5 com citacao fabricada em
+// duas rodadas seguidas do PR 3 da borda do PDV.
+test('tui do claude leva o effort do papel, como o runner headless', () => {
+  const revisor = tuiCommand('claude', 'claude-sonnet-5', {
+    papel: 'reviewer',
+    effort: 'xhigh',
+    claudeEffort: 'medium',
+  });
+  assert.equal(revisor[revisor.indexOf('--effort') + 1], 'xhigh');
+  // Refutador e verificador NAO herdam o raio do diff: ficam no LMS_CLAUDE_EFFORT.
+  const refutador = tuiCommand('claude', 'claude-opus-5', {
+    papel: 'refutador',
+    effort: 'xhigh',
+    claudeEffort: 'medium',
+  });
+  assert.equal(refutador[refutador.indexOf('--effort') + 1], 'medium');
+  // Sem config (testes, chamador antigo): `high`, nunca o default do CLI.
+  assert.equal(effortDaTui(), 'high');
+  assert.equal(effortDaTui({ papel: 'reviewer', effort: 'nivel-inventado' }), 'high');
 });
 
 test('tui do pi nao invoca codex, grava o candidato e nao tem bash/edit', () => {

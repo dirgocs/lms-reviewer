@@ -75,7 +75,18 @@ async function tmux(args, { check = true } = {}) {
  * e afirmava no comentário que cobria todos; a própria cadeia pegou a mentira na
  * revisão inicial. Agora, um por um:
  */
-export function tuiCommand(provider, model) {
+/**
+ * Nivel de esforco do `claude` na TUI, pelo papel — espelho de `commandFor` no
+ * runner headless. `high` quando o chamador nao passa config (testes), nunca o
+ * default do CLI: a janela nao-assistida e onde o revisor mais precisa de fundo.
+ */
+export function effortDaTui(config = {}) {
+  const doPapel =
+    config.papel === 'reviewer' ? (config.effort ?? config.claudeEffort) : config.claudeEffort;
+  return effortValido(doPapel, 'LMS_CLAUDE_EFFORT') ?? 'high';
+}
+
+export function tuiCommand(provider, model, config = {}) {
   if (provider === 'claude') {
     // Anthropic recusa headless com skip-permissions; na TUI é o caminho suportado.
     // --disallowedTools é a trava equivalente ao --deny do grok.
@@ -84,6 +95,14 @@ export function tuiCommand(provider, model) {
       '--dangerously-skip-permissions',
       '--model',
       model,
+      // Mesma regra do runner headless (`commandFor`): o PAPEL decide. Revisor sobe
+      // com o raio do diff (`effort`, xhigh em caminho de risco); refutador e
+      // verificador ficam no LMS_CLAUDE_EFFORT. Sem isto a TUI caía no default do
+      // CLI e a politica de profundidade do Master simplesmente nao existia no modo
+      // tmux — que e o UNICO autorizado (14/09/2026). Sonnet revisando em medium
+      // devolveu 5/5 com citacao fabricada duas rodadas seguidas.
+      '--effort',
+      effortDaTui(config),
       '--disallowedTools',
       'Bash(git push:*)',
       '--disallowedTools',
@@ -286,7 +305,7 @@ async function collectTmux({
     window,
     '-c',
     root,
-    ...tuiCommand(provider, model),
+    ...tuiCommand(provider, model, config),
   ]);
 
   await sleep(BOOT_MS());

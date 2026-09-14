@@ -8,6 +8,19 @@ O que conta como *breaking* aqui: mudar o schema do scorecard, o contrato de
 gate. **Afrouxar o gate é breaking mesmo que nada quebre tecnicamente** — quem instalou
 isto instalou o rigor, e um gate que passa a deixar passar é uma regressão silenciosa.
 
+## [1.6.4] - 2026-09-14
+
+### Corrigido
+
+- TUI do `claude` (modo tmux, o único autorizado) não recebia `--effort`: o comando
+  saía só com `--model` e o CLI caía no default, então a política de profundidade por
+  raio do diff existia apenas no runner headless. Agora `tuiCommand` espelha
+  `commandFor` — o papel decide: revisor sobe com o raio (`xhigh` em caminho de
+  risco), refutador e verificador ficam em `LMS_CLAUDE_EFFORT`, e sem config o piso é
+  `high`, nunca o default do CLI. Sintoma: Sonnet revisando em medium devolveu 5/5 com
+  citação **fabricada** em duas rodadas seguidas (14/09/2026), uma delas
+  `ALTER TABLE "PosOrder"` onde a migration diz `ALTER TABLE public."PosOrder"`.
+
 ## [1.6.3] - 2026-09-14
 
 ### Alterado
